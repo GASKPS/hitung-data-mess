@@ -7,11 +7,11 @@ const fmt=value=>new Intl.NumberFormat('id-ID').format(value);
 const date=value=>new Intl.DateTimeFormat('id-ID',{day:'numeric',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit',timeZone:'Asia/Jayapura'}).format(new Date(value));
 const freshFilters=()=>({company:'',department:'',subdepartment:'',grade:''});
 const fieldNames={nik:'NIK',name:'Nama',company:'Perusahaan',department:'Departemen',subdepartment:'Subdepartemen',grade:'Kode golongan',position:'Jabatan',location:'Lokasi mess',block:'Blok',room:'No. kamar'};
-const state={data:makeEmpty(),files:{mess:null,manpower:null},requests:{mess:0,manpower:0},loading:0,busy:false,dirty:false,pendingFiles:false,filters:freshFilters(),query:'',status:'',page:1,reportGroup:'company',reportPage:1,activeUser:null};
+const state={data:makeEmpty(),files:{mess:null,manpower:null},requests:{mess:0,manpower:0},loading:0,busy:false,restoring:false,dirty:false,pendingFiles:false,filters:freshFilters(),query:'',status:'',page:1,reportGroup:'company',reportPage:1,activeUser:null,cleanupPending:null,lastUpdated:null};
 const pageSize=20;
 const selectedRows=()=>filterResidents(state.data.residents,state.filters,state.query,state.status);
-let toastTimer,historyRequest=0;
-let storageStatus='connecting',storageError='';
+let toastTimer,historyRequest=0,restoreRequest=0,authEpoch=0;
+let storageStatus='connecting',storageError='',authBusy=false;
 
 function toast(message,error=false){
   clearTimeout(toastTimer);const node=$('#toast');node.textContent=message;node.classList.toggle('error',error);node.hidden=false;toastTimer=setTimeout(()=>node.hidden=true,error?9000:5500);
@@ -24,7 +24,8 @@ async function withButton(button,work,label='Memproses…'){
 }
 function updateSaveStatus(){
   $('#storage-button').title=cloud.session?'Terhubung ke Supabase':'Simpan atau buka data melalui Supabase';
-  $('#save-status').textContent=state.data.mode==='empty'?'File dibaca setelah Anda memilih Tampilkan data.':state.dirty?'Hasil impor belum disimpan.':'Data tersimpan di Supabase.';
+  $('#save-status').textContent=state.data.mode==='empty'?'File dibaca setelah Anda memilih Tampilkan data.':state.cleanupPending?'Data baru tersimpan; penghapusan data lama belum selesai.':cloud.access.mode==='shared'?'Data bersama tersimpan di Supabase.':'Data tersimpan di Supabase.';
+  $('#cleanup-notice').hidden=!state.cleanupPending;
 }
 function renderFilters(){
   const labels={company:'Semua perusahaan',department:'Semua departemen',subdepartment:'Semua subdepartemen',grade:'Semua golongan'};
@@ -93,6 +94,7 @@ function renderResults(){
   $('#export-button').disabled=!state.data.residents.length;
   $('#resident-search').disabled=!state.data.residents.length;$('#resident-status').disabled=!state.data.residents.length;
   $('#data-source').textContent=state.data.mode==='empty'?'Belum ada data yang diproses.':`${fmt(state.data.residents.length)} NIK unik · ${fmt(summary(state.data.residents).matched)} cocok dengan manpower`;
+  $('#last-updated').hidden=!state.lastUpdated;$('#last-updated').textContent=state.lastUpdated?`Terakhir diperbarui ${date(state.lastUpdated)} WIT`:'';
   updateSaveStatus();
 }
 function resetFilters(){state.filters=freshFilters();state.query='';state.status='';state.page=1;state.reportPage=1;$('#resident-search').value='';$('#resident-status').value='';renderResults();}
@@ -108,8 +110,12 @@ function mappingError(type){
   return '';
 }
 function updateUpload(){
-  const both=state.files.mess&&state.files.manpower;$('#process-import').disabled=!both||state.loading>0||state.busy;
-  $('#upload-help').textContent=state.loading?'Sedang membaca file…':state.busy?'Mencocokkan NIK…':!both?'Pilih kedua file untuk mulai.':state.pendingFiles?'File siap. Klik Tampilkan data.':'Data sudah diproses.';
+  const both=state.files.mess&&state.files.manpower,locked=!cloud.session||!cloud.access.allowed||state.busy||state.restoring;
+  $('#process-import').disabled=!both||state.loading>0||locked||!state.pendingFiles;
+  for(const type of ['mess','manpower']){$(`#file-${type}`).disabled=locked;$(`#mapping-${type}`).querySelectorAll('input,select').forEach(input=>input.disabled=locked);}
+  $('#signout-button').disabled=state.busy;
+  $('#refresh-data').disabled=!cloud.session||state.busy||state.restoring;
+  $('#upload-help').textContent=state.restoring?'Memuat data terakhir…':state.loading?'Sedang membaca file…':state.busy?'Mencocokkan dan menyimpan data…':!both?'Pilih kedua file untuk mulai.':state.pendingFiles?'File siap. Klik Tampilkan data.':'Data sudah diproses dan disimpan.';
 }
 function renderMapping(type){
   const source=state.files[type];if(!source)return;const hs=headers(source),root=$(`#mapping-${type}`),details=$(`#mapping-details-${type}`);
@@ -124,6 +130,7 @@ function renderMapping(type){
 }
 function updateFileStatus(type){const source=state.files[type],node=$(`#file-${type}-status`);node.classList.add('loaded');node.textContent=`${source.name} · Sheet ${source.sheet} · ${fmt(Math.max(0,source.rows.length-source.headerIndex-1))} baris`;}
 async function loadFile(type,file){
+  if(!cloud.session||!cloud.access.allowed||state.busy||state.restoring)return;
   const request=++state.requests[type];state.loading++;importError('');updateUpload();$(`#file-${type}-status`).textContent='Membaca file…';
   try{
     const source=await readWorkbook(file,type);if(request!==state.requests[type])return;
@@ -133,17 +140,23 @@ async function loadFile(type,file){
   finally{state.loading--;updateUpload();}
 }
 async function processImport(){
-  if(state.busy||state.loading)return;
+  if(state.busy||state.loading||state.restoring||!cloud.session||!cloud.access.allowed||!state.pendingFiles)return;
+  const epoch=authEpoch;
   for(const type of ['mess','manpower']){const error=mappingError(type);if(error){importError(error);if(state.files[type])$(`#mapping-details-${type}`).open=true;return;}}
-  if(state.dirty&&!window.confirm('Data aktif belum disimpan. Ganti dengan kedua file ini?'))return;
   state.busy=true;updateUpload();importError('');
   try{
     await new Promise(resolve=>setTimeout(resolve,25));
+    if(epoch!==authEpoch)return;
     const mapped={};for(const type of ['mess','manpower']){const s=state.files[type];mapped[type]=mapRows(s.rows,s.headerIndex,s.mapping,type,{company:s.company});if(!mapped[type].rows.length)throw new Error(`Tidak ada NIK valid pada data ${type}. Periksa sheet, baris judul, dan kolom NIK.`);if(mapped[type].rows.length>50000)throw new Error('Maksimal 50.000 baris valid per sumber.');}
     const sources=Object.fromEntries(['mess','manpower'].map(type=>{const s=state.files[type];return [type,{name:s.name,sheet:s.sheet,headerRow:s.headerIndex+1,rows:mapped[type].rows.length}];}));
-    state.data=reconcile(mapped.mess.rows,mapped.manpower.rows,{sources,invalid:[...mapped.mess.invalid,...mapped.manpower.invalid]});state.dirty=true;state.pendingFiles=false;resetFilters();
-    $('#mapping-details-mess').open=false;$('#mapping-details-manpower').open=false;toast(`${fmt(state.data.residents.length)} penghuni berhasil dibaca dan diklasifikasikan.`);
-  }catch(error){importError(error.message);}finally{state.busy=false;updateUpload();}
+    const dataset=reconcile(mapped.mess.rows,mapped.manpower.rows,{sources,invalid:[...mapped.mess.invalid,...mapped.manpower.invalid]});
+    const saved=await cloud.saveSnapshot(dataset,`Data mess — ${date(dataset.importedAt)} WIT`);
+    if(epoch!==authEpoch)return;
+    if(saved.latestId&&saved.latestId!==saved.id){const latest=await cloud.loadSnapshot(saved.latestId);if(epoch!==authEpoch)return;state.cleanupPending=null;applySavedData(latest);toast('Data yang lebih baru dari sesi lain sudah dimuat.');return;}
+    state.data=dataset;state.data.mode='cloud';state.dirty=false;state.pendingFiles=false;state.cleanupPending=saved.cleanupPending?saved:null;state.lastUpdated=saved.created_at;resetFilters();
+    $('#mapping-details-mess').open=false;$('#mapping-details-manpower').open=false;
+    toast(saved.cleanupPending?'Data baru tersimpan. Penghapusan data lama perlu dicoba lagi.':`${fmt(state.data.residents.length)} penghuni berhasil diproses dan disimpan.`,saved.cleanupPending);
+  }catch(error){if(epoch===authEpoch)importError(`${error.message} Data yang tersimpan sebelumnya tetap tersedia.`);}finally{state.busy=false;updateUpload();if(epoch!==authEpoch&&cloud.session)restoreLatest();}
 }
 async function exportData(){
   await withButton($('#export-button'),async()=>{
@@ -160,37 +173,61 @@ async function exportData(){
   },'Mengunduh…');
 }
 function clearCloudData(){
-  if(state.data.mode!=='cloud')return;state.data=makeEmpty();state.dirty=false;state.pendingFiles=false;state.files={mess:null,manpower:null};
-  for(const type of ['mess','manpower']){$(`#file-${type}`).value='';$(`#file-${type}-status`).textContent='Excel atau CSV, maksimal 20 MB.';$(`#file-${type}-status`).classList.remove('loaded');$(`#mapping-details-${type}`).hidden=true;}
-  updateUpload();resetFilters();
+  state.data=makeEmpty();state.dirty=false;state.pendingFiles=false;state.files={mess:null,manpower:null};state.cleanupPending=null;state.restoring=false;state.lastUpdated=null;
+  for(const type of ['mess','manpower']){state.requests[type]++;$(`#file-${type}`).value='';$(`#file-${type}-status`).textContent='Excel atau CSV, maksimal 20 MB.';$(`#file-${type}-status`).classList.remove('loaded');$(`#mapping-details-${type}`).hidden=true;}
+  $('#restore-notice').hidden=true;$('#data-access-notice').hidden=true;importError('');updateUpload();resetFilters();
 }
 function onAuthChange(session){
   const old=state.activeUser;state.activeUser=session?.user.id||null;
-  if(old&&old!==state.activeUser)clearCloudData();updateSaveStatus();
+  if(old!==state.activeUser){authEpoch++;restoreRequest++;historyRequest++;clearCloudData();$('#storage-content').replaceChildren();if(state.activeUser)restoreLatest();else{$('#storage-dialog').close();$('#rules-dialog').close();$('#login-password').value='';}}
+  renderAuth();updateSaveStatus();
   if(old!==state.activeUser&&storageStatus==='ready'&&$('#storage-dialog').open)renderStorage();
+}
+function renderAuth(){
+  const signedIn=Boolean(state.activeUser&&cloud.session);
+  $('#login-screen').hidden=signedIn;$('#workspace').hidden=!signedIn;$('#skip-to-results').hidden=!signedIn;
+  $('#account-email').textContent=cloud.session?.user.email||'Akun aktif';
+  const ready=storageStatus==='ready'&&!authBusy;
+  for(const id of ['login-email','login-password','login-submit'])$(`#${id}`).disabled=!ready;
+  $('#login-submit').textContent=authBusy?'Masuk…':'Masuk';
+  $('#connection-status').textContent=storageStatus==='connecting'?'Memeriksa sesi…':storageStatus==='error'?`Koneksi belum tersedia. ${storageError}`:'Gunakan akun yang sudah terdaftar.';
+  $('#retry-connection').hidden=storageStatus!=='error';
 }
 async function connectStorage(){
   storageStatus='connecting';storageError='';
-  if($('#storage-dialog').open)renderStorage();
+  renderAuth();
   try{await cloud.connect(onAuthChange);storageStatus='ready';}
   catch(error){storageStatus='error';storageError=error.message;}
-  if($('#storage-dialog').open)renderStorage();
+  renderAuth();if($('#storage-dialog').open)renderStorage();
 }
 function renderStorage(){
   const account=cloud.session,root=$('#storage-content');
-  let content;
-  if(storageStatus==='connecting')content='<p class="loading" role="status">Menghubungkan penyimpanan…</p>';
-  else if(storageStatus==='error')content=`<p class="notice error" role="alert">Penyimpanan belum dapat dihubungkan. ${e(storageError)}</p><button class="button" type="button" id="retry-storage">Coba lagi</button>`;
-  else if(account)content=`<div class="storage-account"><span>${e(account.user.email||'Akun aktif')}</span><button type="button" class="text-button" id="signout-button">Keluar</button></div><form class="save-form" id="save-form"><label>Nama data<input id="snapshot-label" maxlength="160" required value="Data mess — ${new Intl.DateTimeFormat('id-ID',{day:'numeric',month:'long',year:'numeric',timeZone:'Asia/Jayapura'}).format(new Date())}"></label><button class="button primary" id="save-snapshot" type="submit"${!state.data.residents.length?' disabled':''}>Simpan data aktif</button><span class="small-note">${!state.data.residents.length?'Unggah dan proses kedua file terlebih dahulu.':state.dirty?'Hasil impor ini belum disimpan.':'Data aktif sudah tersimpan.'}</span></form><div class="history-heading"><h3>Data tersimpan</h3><button type="button" class="text-button" id="refresh-snapshots">Muat ulang</button></div><div id="snapshot-list"><p class="loading">Memuat data…</p></div>`;
-  else content='<p class="setup-note">Masuk untuk menyimpan atau membuka data Anda.</p><form id="login-form" class="storage-form"><label>Email<input id="login-email" type="email" required autocomplete="username" placeholder="nama@perusahaan.com"></label><label>Kata sandi<input id="login-password" type="password" required autocomplete="current-password"></label><button class="button primary" type="submit">Masuk</button></form><div id="login-feedback" role="status"></div>';
-  root.innerHTML=content+'<div class="storage-bottom"><button class="button" data-close="storage-dialog" type="button">Tutup</button></div>';
+  root.innerHTML=`<div class="storage-account"><span>${e(account?.user.email||'Akun aktif')}</span></div><p class="setup-note">${cloud.access.mode==='shared'?'Semua akun yang diberi akses melihat dan dapat mengganti data yang sama. Impor baru mengganti seluruh data sebelumnya dalam satu transaksi.':'Pembaruan database belum diaktifkan. Untuk sementara data masih mengikuti akun masing-masing.'}</p><div class="history-heading"><h3>Data terakhir</h3><button type="button" class="text-button" id="refresh-snapshots">Muat ulang</button></div><div id="snapshot-list"><p class="loading">Memuat data…</p></div><div class="storage-bottom"><button class="button" data-close="storage-dialog" type="button">Tutup</button></div>`;
   bindClose(root);
-  if($('#retry-storage'))$('#retry-storage').onclick=connectStorage;
-  if($('#login-form'))$('#login-form').onsubmit=async event=>{event.preventDefault();await withButton(event.currentTarget.querySelector('button'),async()=>{try{await cloud.signIn($('#login-email').value,$('#login-password').value);onAuthChange(cloud.session);renderStorage();toast('Berhasil masuk.');}catch(error){feedback('#login-feedback',error.message,true);$('#login-password').value='';}},'Masuk…');};
-  if($('#signout-button'))$('#signout-button').onclick=async event=>withButton(event.currentTarget,async()=>{await cloud.signOut();clearCloudData();state.activeUser=null;renderStorage();toast('Anda sudah keluar.');});
-  if($('#save-form'))$('#save-form').onsubmit=async event=>{event.preventDefault();await withButton($('#save-snapshot'),async()=>{await cloud.saveSnapshot(state.data,$('#snapshot-label').value);state.data.mode='cloud';state.dirty=false;updateSaveStatus();renderStorage();toast('Data berhasil disimpan.');},'Menyimpan…');};
-  if($('#refresh-snapshots'))$('#refresh-snapshots').onclick=fillSnapshots;
+  $('#refresh-snapshots').onclick=fillSnapshots;
   if(storageStatus==='ready'&&account)fillSnapshots();
+}
+function applySavedData(saved){
+  state.data=reconcile(saved.mess,saved.manpower,{sources:saved.source_info,invalid:saved.invalid_rows,importedAt:saved.imported_at,mode:'cloud'});state.dirty=false;state.pendingFiles=false;state.files={mess:null,manpower:null};state.lastUpdated=saved.created_at;
+  if(cloud.access.mode==='shared')state.cleanupPending=null;
+  for(const type of ['mess','manpower']){$(`#file-${type}`).value='';$(`#mapping-details-${type}`).hidden=true;$(`#file-${type}-status`).textContent=`Sumber tersimpan: ${state.data.sources[type]?.name||'—'}`;$(`#file-${type}-status`).classList.add('loaded');}
+  importError('');updateUpload();resetFilters();
+}
+async function restoreLatest(){
+  if(!cloud.session||state.busy)return;
+  if(state.pendingFiles&&!window.confirm('File yang dipilih belum diproses. Muat data terakhir dan batalkan pilihan file ini?'))return;
+  const request=++restoreRequest,epoch=authEpoch;state.restoring=true;updateUpload();
+  $('#restore-notice').hidden=false;$('#restore-message').textContent='Memuat data terakhir…';$('#retry-restore').hidden=true;
+  try{
+    await cloud.refreshAccess();
+    if(request!==restoreRequest||epoch!==authEpoch)return;
+    if(cloud.access.allowed){const saved=await cloud.loadLatestSnapshot();if(request!==restoreRequest||epoch!==authEpoch)return;if(saved)applySavedData(saved);else clearCloudData();}
+    else clearCloudData();
+    const notice=$('#data-access-notice');notice.hidden=cloud.access.mode==='shared'&&cloud.access.allowed;
+    notice.innerHTML=cloud.access.mode==='legacy'?'Data bersama belum aktif karena database masih memakai pengaturan per akun. Jalankan pembaruan database sekali, lalu muat ulang web. <a href="./schema.sql" download="Data_Mess_Bersama.sql">Unduh pembaruan database</a>':cloud.access.allowed?'':'Akun ini belum diberi akses data mess bersama. Hubungi pengelola akun.';
+    $('#restore-notice').hidden=true;
+  }catch(error){if(request===restoreRequest&&epoch===authEpoch){$('#restore-message').textContent=`Data terakhir belum dapat dimuat. ${error.message}`;$('#retry-restore').hidden=false;}}
+  finally{if(request===restoreRequest&&epoch===authEpoch){state.restoring=false;updateUpload();}}
 }
 async function fillSnapshots(){
   const request=++historyRequest;
@@ -198,18 +235,24 @@ async function fillSnapshots(){
     const snapshots=await cloud.listSnapshots();if(request!==historyRequest||!$('#snapshot-list'))return;
     $('#snapshot-list').innerHTML=snapshots.length?snapshots.map(s=>`<div class="snapshot-row"><div><strong>${e(s.label)}</strong><small>${date(s.created_at)} WIT · ${fmt(s.counts?.total||0)} penghuni</small></div><button class="button small" type="button" data-snapshot-id="${e(s.id)}">Buka</button></div>`).join(''):'<p class="small-note">Belum ada data tersimpan.</p>';
     $('#snapshot-list').querySelectorAll('[data-snapshot-id]').forEach(button=>button.onclick=async()=>{
-      if(state.dirty&&!window.confirm('Hasil impor belum disimpan. Ganti dengan data tersimpan ini?'))return;
+      if(state.busy||state.restoring)return;
+      if(state.pendingFiles&&!window.confirm('File yang dipilih belum diproses. Buka data tersimpan?'))return;
       await withButton(button,async()=>{
-        const saved=await cloud.loadSnapshot(button.dataset.snapshotId);
-        state.data=reconcile(saved.mess,saved.manpower,{sources:saved.source_info,invalid:saved.invalid_rows,importedAt:saved.imported_at,mode:'cloud'});state.dirty=false;state.pendingFiles=false;state.files={mess:null,manpower:null};
-        for(const type of ['mess','manpower']){$(`#file-${type}`).value='';$(`#mapping-details-${type}`).hidden=true;$(`#file-${type}-status`).textContent=`Sumber tersimpan: ${state.data.sources[type]?.name||'—'}`;$(`#file-${type}-status`).classList.add('loaded');}
-        importError('');updateUpload();resetFilters();$('#storage-dialog').close();toast('Data tersimpan berhasil dibuka.');
+        const epoch=authEpoch;
+        const saved=await cloud.loadLatestSnapshot();
+        if(epoch!==authEpoch)return;if(!saved)throw new Error('Belum ada data tersimpan.');applySavedData(saved);$('#storage-dialog').close();toast('Data tersimpan berhasil dibuka.');
       },'Membuka…');
     });
   }catch(error){if(request===historyRequest&&$('#snapshot-list'))$('#snapshot-list').innerHTML=`<p class="notice error">${e(error.message)}</p>`;}
 }
 function bindClose(root=document){root.querySelectorAll('[data-close]').forEach(button=>button.onclick=()=>document.getElementById(button.dataset.close).close());}
 function init(){
+  $('#login-form').onsubmit=async event=>{event.preventDefault();if(authBusy||storageStatus!=='ready')return;authBusy=true;$('#login-feedback').textContent='';renderAuth();try{await cloud.signIn($('#login-email').value,$('#login-password').value);$('#login-password').value='';onAuthChange(cloud.session);}catch(error){feedback('#login-feedback',error.message,true);$('#login-password').value='';}finally{authBusy=false;renderAuth();}};
+  $('#retry-connection').onclick=connectStorage;
+  $('#signout-button').onclick=event=>withButton(event.currentTarget,async()=>{await cloud.signOut();onAuthChange(null);toast('Anda sudah keluar.');$('#login-email').focus();},'Keluar…');
+  $('#retry-restore').onclick=restoreLatest;
+  $('#refresh-data').onclick=restoreLatest;
+  $('#retry-cleanup').onclick=event=>withButton(event.currentTarget,async()=>{const epoch=authEpoch,snapshot=state.cleanupPending;if(!snapshot)return;const latest=await cloud.removeOlderSnapshots(snapshot);if(epoch!==authEpoch||state.cleanupPending!==snapshot)return;if(latest.id!==snapshot.id){const saved=await cloud.loadSnapshot(latest.id);if(epoch!==authEpoch||state.cleanupPending!==snapshot)return;applySavedData(saved);}state.cleanupPending=null;updateSaveStatus();toast('Data lama berhasil dihapus.');},'Menghapus…');
   for(const field of Object.keys(state.filters))$(`#filter-${field}`).onchange=event=>{state.filters[field]=event.target.value;const keys=Object.keys(state.filters);keys.slice(keys.indexOf(field)+1).forEach(k=>state.filters[k]='');state.page=1;state.reportPage=1;renderResults();};
   $('#resident-search').oninput=event=>{state.query=event.target.value;state.page=1;state.reportPage=1;renderResults();};
   $('#resident-status').onchange=event=>{state.status=event.target.value;state.page=1;state.reportPage=1;renderResults();};
@@ -219,7 +262,7 @@ function init(){
   $('#download-template').onclick=event=>withButton(event.currentTarget,async()=>{await downloadTemplate();toast('Template Excel berhasil diunduh.');},'Menyiapkan…');
   $('#rules-button').onclick=()=>$('#rules-dialog').showModal();$('#storage-button').onclick=()=>{renderStorage();$('#storage-dialog').showModal();};
   bindClose();
-  window.addEventListener('beforeunload',event=>{if(state.dirty){event.preventDefault();event.returnValue='';}});
+  window.addEventListener('beforeunload',event=>{if(state.pendingFiles||state.busy||state.cleanupPending){event.preventDefault();event.returnValue='';}});
   renderResults();updateUpload();connectStorage();
 }
 init();

@@ -13,9 +13,27 @@
   <script type="module" src="./app.js"></script>
 </head>
 <body>
-  <a href="#results" class="skip-link">Langsung ke hasil</a>
-  <main class="page">
-    <header class="page-header"><div><h1>Data Mess</h1><p>Jumlah dan daftar penghuni berdasarkan data mess dan manpower.</p></div><button id="storage-button" class="button" type="button">Penyimpanan</button></header>
+  <a id="skip-to-results" href="#results" class="skip-link" hidden>Langsung ke hasil</a>
+  <main id="login-screen" class="login-screen" aria-labelledby="login-title">
+    <div class="login-panel">
+      <p class="login-product">Data Mess</p>
+      <h1 id="login-title">Masuk</h1>
+      <p class="login-intro">Lihat dan kelola data penghuni mess.</p>
+      <form id="login-form" class="storage-form">
+        <label for="login-email">Email<input id="login-email" name="email" type="email" required autocomplete="username" placeholder="nama@perusahaan.com" disabled></label>
+        <label for="login-password">Kata sandi<input id="login-password" name="password" type="password" required autocomplete="current-password" disabled></label>
+        <button id="login-submit" class="button primary" type="submit" disabled>Masuk</button>
+      </form>
+      <div id="login-feedback" role="alert"></div>
+      <p id="connection-status" class="small-note" role="status">Memeriksa sesi…</p>
+      <button id="retry-connection" class="text-button" type="button" hidden>Coba lagi</button>
+    </div>
+  </main>
+  <main id="workspace" class="page" hidden>
+    <header class="page-header"><div><h1>Data Mess</h1><p>Satu data penghuni mess untuk semua akun yang diberi akses.</p></div><div class="account-actions"><span id="account-email"></span><div><button id="storage-button" class="button" type="button">Penyimpanan</button><button id="signout-button" class="text-button" type="button">Keluar</button></div></div></header>
+    <div id="data-access-notice" class="notice" role="status" hidden></div>
+    <div id="restore-notice" class="notice" role="status" hidden><span id="restore-message"></span> <button id="retry-restore" type="button" hidden>Coba lagi</button></div>
+    <div id="cleanup-notice" class="notice" role="status" hidden><span>Data baru sudah tersimpan, tetapi data lama belum berhasil dihapus.</span> <button id="retry-cleanup" type="button">Coba hapus data lama</button></div>
 
     <section class="upload-section" aria-labelledby="upload-heading">
       <div class="section-heading"><h2 id="upload-heading">Unggah data</h2><button type="button" class="text-button" id="download-template">Unduh template Excel</button></div>
@@ -25,10 +43,11 @@
       </div>
       <div id="import-error" class="notice error" role="alert" hidden></div>
       <div class="upload-bottom"><button class="button primary" type="button" id="process-import" disabled>Tampilkan data</button><span id="upload-help">Pilih kedua file untuk mulai.</span><button class="text-button" type="button" id="rules-button">Lihat aturan golongan</button></div>
+      <p class="replacement-note">Data tersimpan otomatis. Upload ulang mengganti data bersama setelah berhasil disimpan.</p>
     </section>
 
     <section id="results" class="results" aria-labelledby="results-heading" tabindex="-1">
-      <div class="results-heading"><div><h2 id="results-heading">Data penghuni</h2><p id="data-source">Belum ada data yang diproses.</p></div><button class="button" type="button" id="export-button" disabled>Unduh Excel</button></div>
+      <div class="results-heading"><div><h2 id="results-heading">Data penghuni</h2><p id="data-source">Belum ada data yang diproses.</p><p id="last-updated" hidden></p></div><div class="results-actions"><button class="text-button" type="button" id="refresh-data">Muat data terbaru</button><button class="button" type="button" id="export-button" disabled>Unduh Excel</button></div></div>
       <div class="filters" aria-label="Filter penghuni">
         <label>Perusahaan<select id="filter-company" aria-label="Filter perusahaan"></select></label>
         <label>Departemen<select id="filter-department" aria-label="Filter departemen"></select></label>

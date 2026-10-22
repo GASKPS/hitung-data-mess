@@ -1,16 +1,16 @@
 # Data Mess
 
-Aplikasi satu halaman untuk melihat jumlah dan daftar penghuni mess. Unggah data mess dan manpower, cocokkan NIK, lalu saring perusahaan, departemen, subdepartemen, dan golongan. Halaman awal kosong sampai file diproses.
+Aplikasi sederhana untuk melihat jumlah dan daftar penghuni mess. Semua akun yang terdaftar memakai satu data bersama dan dapat mengunggah penggantinya. Masuk dengan akun Anda, unggah data mess dan manpower, cocokkan NIK, lalu saring perusahaan, departemen, subdepartemen, dan golongan. Form login langsung tampil saat belum masuk; data bersama terakhir dimuat otomatis setelah masuk.
 
 ## Penggunaan
 
-1. Pilih **Data mess** dan **Data manpower** (`.xlsx`, `.xls`, atau `.csv`).
-2. Jika perlu, buka **Periksa sheet dan kolom**. Sistem mengenali judul kolom dan baris judul secara otomatis.
-3. Klik **Tampilkan data**. Penghuni langsung mendapat golongan hasil klasifikasi.
-4. Pilih filter atau cari nama/NIK/jabatan. Total, jumlah per golongan, daftar, dan rekap semuanya mengikuti filter serta pencarian yang sama.
-5. Buka **Lihat rekap perusahaan dan departemen** untuk melihat rekap silang golongan per perusahaan, departemen, atau subdepartemen.
-6. Pilih **Unduh Excel** untuk mengekspor hasil yang sedang ditampilkan.
-7. Melalui **Penyimpanan**, hasil impor dapat disimpan ke Supabase dan dibuka kembali.
+1. Masuk dengan email dan kata sandi akun yang sudah dibuat. Jika sesi masih aktif, aplikasi langsung membuka data terakhir.
+2. Pilih **Data mess** dan **Data manpower** (`.xlsx`, `.xls`, atau `.csv`).
+3. Jika perlu, buka **Periksa sheet dan kolom**. Sistem mengenali judul kolom dan baris judul secara otomatis.
+4. Klik **Tampilkan data**. Sistem mencocokkan NIK, mengklasifikasikan golongan, dan menyimpan kedua sumber secara otomatis. Data baru mengganti data bersama untuk seluruh pengguna. Jika penyimpanan atau penghapusan gagal, seluruh perubahan dibatalkan dan data lama tetap ada.
+5. Pilih filter atau cari nama/NIK/jabatan. Total, jumlah per golongan, daftar, dan rekap semuanya mengikuti filter serta pencarian yang sama.
+6. Buka **Lihat rekap perusahaan dan departemen** untuk melihat rekap silang golongan per perusahaan, departemen, atau subdepartemen.
+7. Pilih **Unduh Excel** untuk mengekspor hasil yang sedang ditampilkan. Klik **Muat data terbaru** untuk mengambil pembaruan dari pengguna lain. Waktu pembaruan terakhir ditampilkan di atas filter. Menu **Penyimpanan** menampilkan impor terbaru.
 
 Tidak ada grafik, navigasi halaman tambahan, atau data contoh yang otomatis dimuat. Template Excel tersedia melalui tombol **Unduh template Excel**.
 
@@ -49,28 +49,49 @@ Satu sheet dipilih per sumber. Sheet bernama Data Mess dan Data Manpower otomati
 - NIK tidak ditemukan atau referensi ambigu tetap masuk total dan kelompok **Belum teridentifikasi**. Memilih perusahaan tertentu hanya menampilkan orang yang teridentifikasi pada perusahaan itu.
 - Jumlah golongan 1–5 dan MT mungkin lebih kecil dari total jika ada penghuni yang belum dapat diklasifikasikan; jumlah tersebut ditampilkan dalam pemberitahuan pemeriksaan.
 - Baris NIK kosong atau notasi ilmiah ditampilkan sebagai baris ditolak dan tidak dihitung sebagai penghuni. Header berulang dilewati.
-- Data lokal berada dalam memori halaman. Simpan ke Supabase sebelum memuat ulang atau menutup halaman. Aplikasi mengingatkan bila ada hasil impor yang belum disimpan.
+- Data tersimpan otomatis setelah **Tampilkan data** berhasil. Memilih file saja belum mengganti data tersimpan. Aplikasi mengingatkan sebelum menutup halaman jika file belum diproses.
+- Kegagalan membaca atau menyimpan impor baru tidak menghapus data sebelumnya. Data kosong tidak boleh mengganti impor yang sudah tersimpan.
 - Maksimal 20 MB dan 50.000 baris valid per sumber.
 
 ## Supabase
 
 Koneksi ke proyek `jajtnydqgsmenbsjpllu` sudah menjadi konfigurasi bawaan di `dist/cloud.js`. Pengguna tidak perlu mengisi Project URL atau key, termasuk saat berganti perangkat. Konfigurasi manual dari versi lama di browser tidak digunakan.
 
-Persiapan administrator satu kali:
+Mengaktifkan data bersama pada proyek yang sudah dipakai:
 
-1. Buka proyek Supabase tersebut.
-2. Jalankan `supabase/schema.sql` melalui SQL Editor. Skema yang sudah digunakan versi sebelumnya tetap kompatibel; tidak perlu menghapus data.
-3. Buat akun pengguna melalui Authentication → Users.
+1. Unggah versi web terbaru ke GitHub terlebih dahulu.
+2. Buka proyek Supabase tersebut, pilih **SQL Editor → New query**.
+3. Salin seluruh isi `supabase/schema.sql`, lalu klik **Run**. Skrip ini memperbarui tabel, aturan akses, serta fungsi penyimpanan dan mendaftarkan semua akun yang sudah ada.
+4. Muat ulang web atau klik **Muat data terbaru**. Semua akun yang terdaftar melihat unggahan terakhir yang sama, termasuk jika dibuat oleh akun berbeda.
+
+Skrip tidak menghapus data ketika dijalankan. Bila sebelumnya ada beberapa impor per akun, aplikasi menampilkan impor paling baru dari seluruh akun; impor baru berikutnya mengganti dan menghapus semua impor sebelumnya dalam satu transaksi. Menjalankan skrip ulang tetap dapat dilakukan; akun dengan `enabled=false` tetap nonaktif.
+
+Tanpa pembaruan SQL ini, aplikasi tetap mendukung database lama dengan data per akun dan menampilkan pemberitahuan **Data bersama belum aktif**. Koneksi frontend saja tidak dapat mengubah izin database. Akses admin diperlukan untuk menjalankan pembaruan SQL.
+
+Menambah akun berikutnya:
+
+1. Buat akun melalui **Authentication → Users** dan pastikan email sudah dikonfirmasi bila diwajibkan.
+2. Daftarkan akun yang baru dibuat dengan menjalankan SQL berikut melalui SQL Editor:
+
+```sql
+insert into public.mess_members (user_id)
+select id from auth.users where email is not null
+on conflict (user_id) do nothing;
+```
+
+Semua anggota mempunyai hak yang sama untuk melihat, memfilter, mengekspor, dan mengganti data bersama. Pendaftaran publik baru tidak otomatis memberi akses ke data mess. Pengelola dapat menonaktifkan anggota melalui `mess_members.enabled`.
 
 Penggunaan melalui web:
 
-1. Buka **Penyimpanan** dan masuk dengan email serta kata sandi akun yang sudah dibuat. Sesi akan dipulihkan saat halaman dibuka lagi.
-2. Setelah file diproses, isi nama data dan pilih **Simpan data aktif**.
-3. Buka kembali melalui daftar **Data tersimpan**. Riwayat menampilkan 30 data terbaru.
+1. Form login tersedia pada halaman awal. Masuk dengan email serta kata sandi akun yang sudah dibuat. Sesi akan dipulihkan saat halaman dibuka lagi.
+2. Data terakhir otomatis dimuat. Pilih kedua file baru dan klik **Tampilkan data** untuk menggantinya.
+3. Kedua sumber disimpan otomatis, lalu menggantikan data lama untuk semua akun. Menu **Penyimpanan** menampilkan satu impor terbaru, tanpa daftar riwayat.
 
-Kedua sumber disimpan bersama sebagai satu snapshot JSONB dalam satu insert. File Excel asli tidak diunggah; isi baris hasil pembacaan yang disimpan. Pencocokan dan statistik dihitung di browser.
+Kedua sumber disimpan bersama sebagai satu snapshot JSONB melalui `replace_mess_data`. Fungsi database memeriksa keanggotaan, mengunci antrean unggahan, menyimpan impor baru, lalu menghapus impor sebelumnya. Semuanya berada dalam satu transaksi. Identitas pengunggah diambil dari sesi Supabase, sehingga tidak dapat dipalsukan melalui payload frontend. File Excel asli tidak diunggah; isi baris hasil pembacaan yang disimpan. Pencocokan dan statistik dihitung di browser.
 
-RLS membatasi snapshot kepada `auth.uid()` pemilik. Pengguna anonim tidak memiliki akses. Snapshot tidak diperbarui; simpan impor berikutnya sebagai data baru. Pengguna berbeda tidak saling berbagi snapshot. Pendaftaran publik tidak disediakan oleh antarmuka.
+Penggantian data bersama dari beberapa pengguna diurutkan oleh lock database; setelah berhasil, hanya tersisa satu impor. Jika salah satu langkah gagal, insert baru dan penghapusan sama-sama dibatalkan. Database lama sebelum migrasi masih menggunakan insert dan penghapusan terpisah, dengan tombol coba lagi bila penghapusan gagal.
+
+RLS membatasi pembacaan data bersama kepada akun yang tercatat aktif di `mess_members`. Pengguna anonim dan akun tanpa akses tidak dapat membaca atau mengganti data. Penulisan langsung dari frontend ke tabel tidak diizinkan; penggantian wajib melalui fungsi transaksi. Kolom `user_id` hanya mencatat pengunggah. Menghapus akun pengunggah tidak menghapus data bersama. Pendaftaran publik tidak disediakan oleh antarmuka.
 
 Publishable key tersedia di source frontend; akses data tetap dilindungi Auth dan RLS. Secret key dan service_role ditolak oleh validasi konfigurasi. Kata sandi tidak disimpan oleh aplikasi; Supabase SDK mengelola sesi. Saat keluar dari akun, data yang dibuka dari Supabase dibersihkan dari tampilan. Koneksi bawaan tetap tersedia sehingga pengguna berikutnya langsung mendapat formulir login.
 
@@ -103,6 +124,6 @@ Source berisi URL proyek dan publishable key Supabase, tanpa kata sandi, secret 
 | `supabase/schema.sql` | Tabel, indeks, hak akses, dan RLS |
 | `tests/` | Pengujian klasifikasi, Excel, DOM, klien Supabase, dan kebijakan database |
 
-Pengujian mencakup semua kelompok jabatan yang disepakati, contoh S3.7/M1.5/S1.1/P1.4/S4.9, pengecualian MT, jabatan kosong, kode tidak dikenal, konflik referensi, hitungan duplikat, filter bertingkat, rekap, ekspor, dan antarmuka kosong. Pengujian database memakai PostgreSQL melalui PGlite; pengujian klien Supabase memakai SDK asli dengan respons API tiruan. Koneksi Supabase langsung memerlukan proyek dan akun nyata.
+Pengujian mencakup semua kelompok jabatan yang disepakati, contoh S3.7/M1.5/S1.1/P1.4/S4.9, pengecualian MT, jabatan kosong, kode tidak dikenal, konflik referensi, hitungan duplikat, filter bertingkat, rekap, ekspor, login, pemulihan data bersama lintas akun, penggantian impor, rollback insert saat penghapusan gagal, larangan penulisan langsung, penolakan akun tanpa akses, dan kompatibilitas database lama. Pengujian database memakai PostgreSQL melalui PGlite; pengujian klien Supabase memakai SDK asli dengan respons API tiruan. Koneksi Supabase langsung memerlukan proyek dan akun nyata.
 
 Lisensi pustaka dan font tercantum dalam `THIRD_PARTY_NOTICES.md`.
