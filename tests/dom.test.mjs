@@ -7,6 +7,20 @@ const dom=new JSDOM(readFileSync(new URL('../dist/index.html',import.meta.url),'
 const {window}=dom;Object.assign(globalThis,{window,document:window.document,location:window.location,localStorage:window.localStorage});
 window.confirm=()=>true;
 window.HTMLDialogElement.prototype.showModal=function(){this.open=true;};window.HTMLDialogElement.prototype.close=function(){this.open=false;};
+let authListener,mockSession=null,sessionChecks=0;
+globalThis.supabase={createClient:(url,key)=>{
+  assert.equal(url,'https://jajtnydqgsmenbsjpllu.supabase.co');assert.ok(key.startsWith('sb_publishable_'));
+  return {
+    auth:{
+      getSession:async()=>++sessionChecks===1?{data:{session:null},error:new Error('Koneksi terputus.')}:{data:{session:mockSession},error:null},
+      onAuthStateChange:callback=>{authListener=callback;return {data:{subscription:{unsubscribe(){authListener=null;}}}};},
+      signInWithPassword:async({email})=>{mockSession={user:{id:'test-user',email}};authListener?.('SIGNED_IN',mockSession);return {data:{session:mockSession},error:null};},
+      signOut:async()=>{mockSession=null;authListener?.('SIGNED_OUT',null);return {error:null};},
+      stopAutoRefresh(){}
+    },
+    from:()=>({select:()=>({order:()=>({limit:async()=>({data:[],error:null})})})})
+  };
+}};
 const originalTimeout=globalThis.setTimeout;
 globalThis.setTimeout=(fn,delay,...args)=>{const timer=originalTimeout(fn,delay,...args);if(delay>=1000)timer.unref();return timer;};
 await import('../dist/app.js');
@@ -75,9 +89,16 @@ test('export contains current filtered records, original code, classified grade,
     assert.equal(rows.find(r=>r[0]==='0002')[6],'P1.5');assert.ok(book.SheetNames.includes('Perlu diperiksa'));assert.ok(book.SheetNames.includes('Baris ditolak'));
   }finally{URL.createObjectURL=create;URL.revokeObjectURL=revoke;window.HTMLAnchorElement.prototype.click=click;}
 });
-test('storage configuration is tucked away and rejects secret keys without changing the data',async()=>{
-  $('#storage-button').click();assert.equal($('#storage-dialog').open,true);$('#supabase-url').value='https://example.supabase.co';$('#supabase-key').value='sb_secret_not_a_public_key';
-  $('#connection-form').dispatchEvent(new window.Event('submit',{bubbles:true,cancelable:true}));await until(()=>$('#connection-feedback').textContent.includes('bukan secret'));
+test('storage retries its built-in connection and supports login/logout without any URL or key entry',async()=>{
+  $('#storage-button').click();assert.equal($('#storage-dialog').open,true);
+  await until(()=>$('#retry-storage'));assert.match($('#storage-content').textContent,/Koneksi terputus/);
+  $('#retry-storage').click();await until(()=>$('#login-form'));
+  assert.equal($('#supabase-url'),null);assert.equal($('#supabase-key'),null);assert.equal($('#connection-form'),null);
+  $('#login-email').value='test@example.test';$('#login-password').value='test-password';
+  $('#login-form').dispatchEvent(new window.Event('submit',{bubbles:true,cancelable:true}));await until(()=>$('#signout-button'));
+  assert.match($('#storage-content').textContent,/test@example.test/);await until(()=>$('#snapshot-list').textContent.includes('Belum ada data tersimpan'));
+  $('#signout-button').click();await until(()=>$('#login-form'));
+  assert.equal($('#supabase-key'),null);assert.equal($('#login-password').value,'');
   assert.equal($('#total-value').textContent,'4orang');document.querySelector('[data-close="storage-dialog"]').click();
 });
 test('pagination displays all unique residents with no duplicated counts',async()=>{

@@ -54,18 +54,25 @@ Satu sheet dipilih per sumber. Sheet bernama Data Mess dan Data Manpower otomati
 
 ## Supabase
 
-1. Pilih proyek Supabase milik Anda.
+Koneksi ke proyek `jajtnydqgsmenbsjpllu` sudah menjadi konfigurasi bawaan di `dist/cloud.js`. Pengguna tidak perlu mengisi Project URL atau key, termasuk saat berganti perangkat. Konfigurasi manual dari versi lama di browser tidak digunakan.
+
+Persiapan administrator satu kali:
+
+1. Buka proyek Supabase tersebut.
 2. Jalankan `supabase/schema.sql` melalui SQL Editor. Skema yang sudah digunakan versi sebelumnya tetap kompatibel; tidak perlu menghapus data.
 3. Buat akun pengguna melalui Authentication → Users.
-4. Buka **Penyimpanan → Pengaturan koneksi Supabase** pada aplikasi, isi Project URL dan publishable key/anon key, lalu simpan koneksi.
-5. Masuk memakai akun Supabase tersebut. Setelah file diproses, isi nama data dan pilih **Simpan data aktif**.
-6. Buka kembali melalui daftar **Data tersimpan**. Riwayat menampilkan 30 data terbaru.
+
+Penggunaan melalui web:
+
+1. Buka **Penyimpanan** dan masuk dengan email serta kata sandi akun yang sudah dibuat. Sesi akan dipulihkan saat halaman dibuka lagi.
+2. Setelah file diproses, isi nama data dan pilih **Simpan data aktif**.
+3. Buka kembali melalui daftar **Data tersimpan**. Riwayat menampilkan 30 data terbaru.
 
 Kedua sumber disimpan bersama sebagai satu snapshot JSONB dalam satu insert. File Excel asli tidak diunggah; isi baris hasil pembacaan yang disimpan. Pencocokan dan statistik dihitung di browser.
 
 RLS membatasi snapshot kepada `auth.uid()` pemilik. Pengguna anonim tidak memiliki akses. Snapshot tidak diperbarui; simpan impor berikutnya sebagai data baru. Pengguna berbeda tidak saling berbagi snapshot. Pendaftaran publik tidak disediakan oleh antarmuka.
 
-Public key disimpan di browser. Secret key dan service_role ditolak. Kata sandi tidak disimpan oleh aplikasi; Supabase SDK mengelola sesi. Saat keluar dari akun, data yang dibuka dari Supabase dibersihkan dari tampilan.
+Publishable key tersedia di source frontend; akses data tetap dilindungi Auth dan RLS. Secret key dan service_role ditolak oleh validasi konfigurasi. Kata sandi tidak disimpan oleh aplikasi; Supabase SDK mengelola sesi. Saat keluar dari akun, data yang dibuka dari Supabase dibersihkan dari tampilan. Koneksi bawaan tetap tersedia sehingga pengguna berikutnya langsung mendapat formulir login.
 
 ## Menjalankan dan mengunggah ke GitHub
 
@@ -81,7 +88,9 @@ Buka `http://localhost:8080`. Node.js 20+ diperlukan untuk pemeriksaan dan pengu
 
 Unggah source ke repository GitHub milik Anda. Untuk GitHub Pages, aktifkan Settings → Pages → Source → **GitHub Actions**. Workflow `.github/workflows/pages.yml` memeriksa kode, menjalankan pengujian, dan menerbitkan `dist/` saat branch `main` diperbarui. Sesuaikan nama branch bila berbeda. Seluruh aset memakai path relatif untuk mendukung URL repository Pages.
 
-Source tidak berisi kredensial atau file karyawan. `.gitignore` mengecualikan Excel, CSV, dan file env. Proyek Supabase dan repository GitHub memerlukan koneksi ke akun pemilik untuk pemasangan langsung.
+Untuk unggah manual melalui halaman GitHub, unggah isi folder proyek sehingga `index.html` dan `dist/` berada di root repository. Aktifkan Settings → Pages → Source → **Deploy from a branch** → `main` → `/(root)`. Berkas `index.html` pada root mengarahkan pengunjung ke aplikasi di `dist/`.
+
+Source berisi URL proyek dan publishable key Supabase, tanpa kata sandi, secret key, service_role, atau file karyawan. `.gitignore` mengecualikan Excel, CSV, dan file env. Perubahan skema Supabase dan pemasangan langsung ke repository GitHub memerlukan akses ke akun pemilik.
 
 ## Source dan pemeriksaan
 

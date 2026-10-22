@@ -11,6 +11,7 @@ const state={data:makeEmpty(),files:{mess:null,manpower:null},requests:{mess:0,m
 const pageSize=20;
 const selectedRows=()=>filterResidents(state.data.residents,state.filters,state.query,state.status);
 let toastTimer,historyRequest=0;
+let storageStatus='connecting',storageError='';
 
 function toast(message,error=false){
   clearTimeout(toastTimer);const node=$('#toast');node.textContent=message;node.classList.toggle('error',error);node.hidden=false;toastTimer=setTimeout(()=>node.hidden=true,error?9000:5500);
@@ -166,18 +167,30 @@ function clearCloudData(){
 function onAuthChange(session){
   const old=state.activeUser;state.activeUser=session?.user.id||null;
   if(old&&old!==state.activeUser)clearCloudData();updateSaveStatus();
+  if(old!==state.activeUser&&storageStatus==='ready'&&$('#storage-dialog').open)renderStorage();
+}
+async function connectStorage(){
+  storageStatus='connecting';storageError='';
+  if($('#storage-dialog').open)renderStorage();
+  try{await cloud.connect(onAuthChange);storageStatus='ready';}
+  catch(error){storageStatus='error';storageError=error.message;}
+  if($('#storage-dialog').open)renderStorage();
 }
 function renderStorage(){
-  const config=cloud.config||cloud.storedConfig(),account=cloud.session,root=$('#storage-content');
-  root.innerHTML=`<details class="storage-config" id="storage-config"${!config?' open':''}><summary>Pengaturan koneksi Supabase</summary><form id="connection-form" class="storage-form"><label>Project URL<input id="supabase-url" type="url" required placeholder="https://proyek.supabase.co" value="${e(config?.url||'')}" autocomplete="url"></label><label>Publishable key / anon key<input id="supabase-key" type="password" required placeholder="sb_publishable_…" value="${e(config?.key||'')}" autocomplete="off"><small>Gunakan public key. Secret key dan service_role tidak diterima.</small></label><div><button type="submit" class="button">Simpan koneksi</button>${config?' <button class="text-button" type="button" id="disconnect-cloud" style="margin-left:12px">Putuskan koneksi</button>':''}</div></form><div id="connection-feedback" role="status"></div><a class="schema-link" href="./schema.sql" download="data-mess-schema.sql">Unduh skema database (.sql)</a><p class="small-note" style="margin-top:9px">Jalankan skema sekali di SQL Editor Supabase. Buat akun masuk melalui Authentication → Users.</p></details>${config?account?`<div class="storage-account"><span>${e(account.user.email||'Akun aktif')}</span><button type="button" class="text-button" id="signout-button">Keluar</button></div><form class="save-form" id="save-form"><label>Nama data<input id="snapshot-label" maxlength="160" required value="Data mess — ${new Intl.DateTimeFormat('id-ID',{day:'numeric',month:'long',year:'numeric',timeZone:'Asia/Jayapura'}).format(new Date())}"></label><button class="button primary" id="save-snapshot" type="submit"${!state.data.residents.length?' disabled':''}>Simpan data aktif</button><span class="small-note">${!state.data.residents.length?'Unggah dan proses kedua file terlebih dahulu.':state.dirty?'Hasil impor ini belum disimpan.':'Data aktif sudah tersimpan.'}</span></form><div class="history-heading"><h3>Data tersimpan</h3><button type="button" class="text-button" id="refresh-snapshots">Muat ulang</button></div><div id="snapshot-list"><p class="loading">Memuat data…</p></div>`:`<p class="setup-note">Masuk ke akun Supabase untuk menyimpan atau membuka data.</p><form id="login-form" class="storage-form"><label>Email<input id="login-email" type="email" required autocomplete="username" placeholder="nama@perusahaan.com"></label><label>Kata sandi<input id="login-password" type="password" required autocomplete="current-password"></label><button class="button primary" type="submit">Masuk</button></form><div id="login-feedback" role="status"></div>`:'<p class="small-note">Hasil impor dapat dilihat langsung. Penyimpanan tersedia setelah Supabase terhubung.</p>'}<div class="storage-bottom"><button class="button" data-close="storage-dialog" type="button">Tutup</button></div>`;
+  const account=cloud.session,root=$('#storage-content');
+  let content;
+  if(storageStatus==='connecting')content='<p class="loading" role="status">Menghubungkan penyimpanan…</p>';
+  else if(storageStatus==='error')content=`<p class="notice error" role="alert">Penyimpanan belum dapat dihubungkan. ${e(storageError)}</p><button class="button" type="button" id="retry-storage">Coba lagi</button>`;
+  else if(account)content=`<div class="storage-account"><span>${e(account.user.email||'Akun aktif')}</span><button type="button" class="text-button" id="signout-button">Keluar</button></div><form class="save-form" id="save-form"><label>Nama data<input id="snapshot-label" maxlength="160" required value="Data mess — ${new Intl.DateTimeFormat('id-ID',{day:'numeric',month:'long',year:'numeric',timeZone:'Asia/Jayapura'}).format(new Date())}"></label><button class="button primary" id="save-snapshot" type="submit"${!state.data.residents.length?' disabled':''}>Simpan data aktif</button><span class="small-note">${!state.data.residents.length?'Unggah dan proses kedua file terlebih dahulu.':state.dirty?'Hasil impor ini belum disimpan.':'Data aktif sudah tersimpan.'}</span></form><div class="history-heading"><h3>Data tersimpan</h3><button type="button" class="text-button" id="refresh-snapshots">Muat ulang</button></div><div id="snapshot-list"><p class="loading">Memuat data…</p></div>`;
+  else content='<p class="setup-note">Masuk untuk menyimpan atau membuka data Anda.</p><form id="login-form" class="storage-form"><label>Email<input id="login-email" type="email" required autocomplete="username" placeholder="nama@perusahaan.com"></label><label>Kata sandi<input id="login-password" type="password" required autocomplete="current-password"></label><button class="button primary" type="submit">Masuk</button></form><div id="login-feedback" role="status"></div>';
+  root.innerHTML=content+'<div class="storage-bottom"><button class="button" data-close="storage-dialog" type="button">Tutup</button></div>';
   bindClose(root);
-  $('#connection-form').onsubmit=async event=>{event.preventDefault();await withButton(event.currentTarget.querySelector('button[type=submit]'),async()=>{try{await cloud.connect($('#supabase-url').value,$('#supabase-key').value,onAuthChange);renderStorage();toast('Koneksi disimpan. Masuk untuk menyimpan data.');}catch(error){feedback('#connection-feedback',error.message,true);}},'Menghubungkan…');};
-  if($('#disconnect-cloud'))$('#disconnect-cloud').onclick=async event=>withButton(event.currentTarget,async()=>{await cloud.disconnect();clearCloudData();state.activeUser=null;renderStorage();toast('Koneksi Supabase dilepas.');});
+  if($('#retry-storage'))$('#retry-storage').onclick=connectStorage;
   if($('#login-form'))$('#login-form').onsubmit=async event=>{event.preventDefault();await withButton(event.currentTarget.querySelector('button'),async()=>{try{await cloud.signIn($('#login-email').value,$('#login-password').value);onAuthChange(cloud.session);renderStorage();toast('Berhasil masuk.');}catch(error){feedback('#login-feedback',error.message,true);$('#login-password').value='';}},'Masuk…');};
   if($('#signout-button'))$('#signout-button').onclick=async event=>withButton(event.currentTarget,async()=>{await cloud.signOut();clearCloudData();state.activeUser=null;renderStorage();toast('Anda sudah keluar.');});
   if($('#save-form'))$('#save-form').onsubmit=async event=>{event.preventDefault();await withButton($('#save-snapshot'),async()=>{await cloud.saveSnapshot(state.data,$('#snapshot-label').value);state.data.mode='cloud';state.dirty=false;updateSaveStatus();renderStorage();toast('Data berhasil disimpan.');},'Menyimpan…');};
   if($('#refresh-snapshots'))$('#refresh-snapshots').onclick=fillSnapshots;
-  if(account)fillSnapshots();
+  if(storageStatus==='ready'&&account)fillSnapshots();
 }
 async function fillSnapshots(){
   const request=++historyRequest;
@@ -207,6 +220,6 @@ function init(){
   $('#rules-button').onclick=()=>$('#rules-dialog').showModal();$('#storage-button').onclick=()=>{renderStorage();$('#storage-dialog').showModal();};
   bindClose();
   window.addEventListener('beforeunload',event=>{if(state.dirty){event.preventDefault();event.returnValue='';}});
-  renderResults();updateUpload();const config=cloud.storedConfig();if(config)cloud.connect(config.url,config.key,onAuthChange).then(()=>{if($('#storage-dialog').open)renderStorage();}).catch(()=>toast('Koneksi penyimpanan belum berhasil. Periksa pengaturan Supabase.',true));
+  renderResults();updateUpload();connectStorage();
 }
 init();

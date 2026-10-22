@@ -1,18 +1,17 @@
 import { summary } from './core.js';
-const CONFIG_KEY = 'mess-insight:supabase:v1';
+export const DEFAULT_CONFIG = Object.freeze({
+  url: 'https://jajtnydqgsmenbsjpllu.supabase.co',
+  key: 'sb_publishable_mM_l9iZSXavTD7x4gec2nw_JybjfE78'
+});
 export let client = null;
 export let session = null;
-export let config = null;
 let subscription = null;
-export function storedConfig() {
-  try { return JSON.parse(localStorage.getItem(CONFIG_KEY) || 'null'); } catch { return null; }
-}
 export function validateConfig(url, key) {
   let endpoint;
   try { endpoint = new URL(url.trim()); } catch { throw new Error('Masukkan Project URL Supabase yang valid.'); }
-  if (endpoint.protocol !== 'https:' || endpoint.username || endpoint.password || endpoint.search || endpoint.hash || endpoint.pathname !== '/') throw new Error('https://jajtnydqgsmenbsjpllu.supabase.co');
+  if (endpoint.protocol !== 'https:' || endpoint.username || endpoint.password || endpoint.search || endpoint.hash || endpoint.pathname !== '/') throw new Error('Gunakan Project URL HTTPS tanpa path atau parameter.');
   const publicKey = key.trim();
-  if (publicKey.startsWith('sb_secret_')) throw new Error('sb_publishable_mM_l9iZSXavTD7x4gec2nw_JybjfE78');
+  if (publicKey.startsWith('sb_secret_')) throw new Error('Gunakan publishable key atau anon key, bukan secret key.');
   if (publicKey.startsWith('eyJ')) {
     try {
       const piece = publicKey.split('.')[1].replace(/-/g,'+').replace(/_/g,'/');
@@ -22,14 +21,12 @@ export function validateConfig(url, key) {
   } else if (!publicKey.startsWith('sb_publishable_') || publicKey.length < 25) throw new Error('Masukkan publishable key atau anon key publik dari Supabase.');
   return { url: endpoint.origin, key: publicKey };
 }
-export async function connect(url, key, onChange = () => {}) {
-  const validated = validateConfig(url,key);
+export async function connect(onChange = () => {}) {
+  const validated = validateConfig(DEFAULT_CONFIG.url,DEFAULT_CONFIG.key);
   if (!globalThis.supabase?.createClient) throw new Error('Modul Supabase belum termuat. Muat ulang halaman lalu coba kembali.');
   subscription?.unsubscribe();
-  if (client) client.auth.stopAutoRefresh();
-  client = globalThis.supabase.createClient(validated.url,validated.key,{auth:{persistSession:true,autoRefreshToken:true,detectSessionInUrl:false}});
-  config=validated;
-  localStorage.setItem(CONFIG_KEY,JSON.stringify(validated));
+  subscription=null;
+  if (!client) client = globalThis.supabase.createClient(validated.url,validated.key,{auth:{persistSession:true,autoRefreshToken:true,detectSessionInUrl:false}});
   const {data,error}=await client.auth.getSession();
   if(error)throw error;
   session=data.session;
@@ -38,7 +35,7 @@ export async function connect(url, key, onChange = () => {}) {
   return session;
 }
 export async function signIn(email,password) {
-  if(!client)throw new Error('Simpan koneksi Supabase terlebih dahulu.');
+  if(!client)throw new Error('Penyimpanan belum siap. Coba hubungkan kembali.');
   const {data,error}=await client.auth.signInWithPassword({email:email.trim(),password});
   if(error)throw new Error(error.message==='Invalid login credentials'?'Email atau kata sandi tidak sesuai.':error.message);
   session=data.session; return session;
@@ -52,8 +49,7 @@ export async function disconnect() {
   if(client && session)await signOut();
   subscription?.unsubscribe(); subscription=null;
   client?.auth.stopAutoRefresh();
-  client=null;session=null;config=null;
-  localStorage.removeItem(CONFIG_KEY);
+  client=null;session=null;
 }
 function requireSession() {
   if(!client || !session)throw new Error('Masuk ke akun Supabase untuk menyimpan atau membuka data.');
