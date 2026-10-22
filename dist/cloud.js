@@ -10,9 +10,9 @@ export function storedConfig() {
 export function validateConfig(url, key) {
   let endpoint;
   try { endpoint = new URL(url.trim()); } catch { throw new Error('Masukkan Project URL Supabase yang valid.'); }
-  if (endpoint.protocol !== 'https:' || endpoint.username || endpoint.password || endpoint.search || endpoint.hash || endpoint.pathname !== '/') throw new Error('Gunakan Project URL HTTPS tanpa path atau parameter.');
+  if (endpoint.protocol !== 'https:' || endpoint.username || endpoint.password || endpoint.search || endpoint.hash || endpoint.pathname !== '/') throw new Error('https://jajtnydqgsmenbsjpllu.supabase.co');
   const publicKey = key.trim();
-  if (publicKey.startsWith('sb_secret_')) throw new Error('Gunakan publishable key atau anon key, bukan secret key.');
+  if (publicKey.startsWith('sb_secret_')) throw new Error('sb_publishable_mM_l9iZSXavTD7x4gec2nw_JybjfE78');
   if (publicKey.startsWith('eyJ')) {
     try {
       const piece = publicKey.split('.')[1].replace(/-/g,'+').replace(/_/g,'/');
