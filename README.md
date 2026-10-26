@@ -14,6 +14,8 @@ Aplikasi sederhana untuk melihat jumlah dan daftar penghuni mess. Semua akun yan
 
 Tidak ada grafik, navigasi halaman tambahan, atau data contoh yang otomatis dimuat. Template Excel tersedia melalui tombol **Unduh template Excel**.
 
+Tombol **Mode gelap / Mode terang** tersedia pada halaman login dan di bagian atas aplikasi. Saat pertama dibuka, tema mengikuti pengaturan perangkat. Pilihan berikutnya disimpan pada browser dan dipakai kembali saat halaman dibuka, termasuk setelah keluar dari akun. Tema mencakup tabel, formulir, dialog, dan pemberitahuan. Mode gelap memakai hitam lembut, putih, dan abu-abu, sedangkan tampilan mode terang tetap seperti sebelumnya.
+
 ## Aturan golongan otomatis
 
 | Golongan | Kelompok jabatan |

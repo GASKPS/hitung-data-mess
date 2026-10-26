@@ -4,8 +4,10 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <meta name="theme-color" content="#ffffff">
+  <meta name="color-scheme" content="light dark">
   <meta name="description" content="Lihat data penghuni mess, cocokkan NIK dengan manpower, dan hitung golongan secara otomatis.">
   <title>Data Mess</title>
+  <script src="./theme.js"></script>
   <link rel="icon" type="image/svg+xml" href="./assets/favicon.svg">
   <link rel="preload" href="./assets/dm-sans.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="stylesheet" href="./styles.css">
@@ -16,7 +18,7 @@
   <a id="skip-to-results" href="#results" class="skip-link" hidden>Langsung ke hasil</a>
   <main id="login-screen" class="login-screen" aria-labelledby="login-title">
     <div class="login-panel">
-      <p class="login-product">Data Mess</p>
+      <div class="login-brand-row"><p class="login-product">Data Mess</p><button class="button theme-toggle" type="button" data-theme-toggle aria-label="Gunakan mode gelap"><svg class="theme-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M20.5 13A8.5 8.5 0 0 1 11 3.5 8.5 8.5 0 1 0 20.5 13Z"/></svg><span class="theme-label">Mode gelap</span></button></div>
       <h1 id="login-title">Masuk</h1>
       <p class="login-intro">Lihat dan kelola data penghuni mess.</p>
       <form id="login-form" class="storage-form">
@@ -30,7 +32,7 @@
     </div>
   </main>
   <main id="workspace" class="page" hidden>
-    <header class="page-header"><div><h1>Data Mess</h1><p>Satu data penghuni mess untuk semua akun yang diberi akses.</p></div><div class="account-actions"><span id="account-email"></span><div><button id="storage-button" class="button" type="button">Penyimpanan</button><button id="signout-button" class="text-button" type="button">Keluar</button></div></div></header>
+    <header class="page-header"><div><h1>Data Mess</h1><p>Satu data penghuni mess untuk semua akun yang diberi akses.</p></div><div class="account-actions"><span id="account-email"></span><div><button class="button theme-toggle" type="button" data-theme-toggle aria-label="Gunakan mode gelap"><svg class="theme-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M20.5 13A8.5 8.5 0 0 1 11 3.5 8.5 8.5 0 1 0 20.5 13Z"/></svg><span class="theme-label">Mode gelap</span></button><button id="storage-button" class="button" type="button">Penyimpanan</button><button id="signout-button" class="text-button" type="button">Keluar</button></div></div></header>
     <div id="data-access-notice" class="notice" role="status" hidden></div>
     <div id="restore-notice" class="notice" role="status" hidden><span id="restore-message"></span> <button id="retry-restore" type="button" hidden>Coba lagi</button></div>
     <div id="cleanup-notice" class="notice" role="status" hidden><span>Data baru sudah tersimpan, tetapi data lama belum berhasil dihapus.</span> <button id="retry-cleanup" type="button">Coba hapus data lama</button></div>

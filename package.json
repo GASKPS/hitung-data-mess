@@ -6,7 +6,7 @@
   "description": "Dashboard hunian mess dengan pencocokan Excel dan Supabase",
   "scripts": {
     "test": "node --test tests/*.test.mjs",
-    "check": "node --check dist/app.js && node --check dist/core.js && node --check dist/workbook.js && node --check dist/cloud.js",
+    "check": "node --check dist/app.js && node --check dist/core.js && node --check dist/workbook.js && node --check dist/cloud.js && node --check dist/theme.js",
     "build": "node scripts/build.mjs"
   },
   "engines": { "node": ">=20" },
