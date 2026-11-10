@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {normalizeNik,companyLabel,gradeLabel,classifyGrade,GRADE_RULES,suggestMapping,detectHeader,mapRows,reconcile,filterResidents,filterOptions,buildReport,summary,makeEmpty,UNKNOWN,escapeHtml,safeSpreadsheetCell} from '../dist/core.js';
+import {normalizeNik,normalizeHireMonth,hireMonthFromNik,companyLabel,gradeLabel,classifyGrade,GRADE_RULES,suggestMapping,detectHeader,mapRows,reconcile,filterResidents,filterOptions,buildReport,summary,makeEmpty,UNKNOWN,escapeHtml,safeSpreadsheetCell} from '../dist/core.js';
 
 test('NIK preserves letters, leading zeros, and punctuation while normalizing spacing',()=>{
   assert.equal(normalizeNik(" 's 00123\u200B "),'S00123');
@@ -8,6 +8,13 @@ test('NIK preserves letters, leading zeros, and punctuation while normalizing sp
   assert.equal(normalizeNik('001-002'),'001-002');
   assert.equal(companyLabel('PT. HJF'),'HJF');
   assert.equal(companyLabel('PT KPS'),'KPS');
+});
+
+test('hire month reads MMYY after the NIK prefix and rejects invalid months',()=>{
+  assert.deepEqual(['F10250001','F01260002','F05230003','S11260004','T112600000005'].map(hireMonthFromNik),['2025-10','2026-01','2023-05','2026-11','2026-11']);
+  for(const nik of ['F00260001','T13260001','11260001','F1126','F1126TEXT'])assert.equal(hireMonthFromNik(nik),'');
+  assert.equal(normalizeHireMonth('2026-10'),'2026-10');
+  assert.equal(normalizeHireMonth('2026-13'),'');
 });
 test('all position groups use the agreed table, including S3 to grade 2',()=>{
   for(const {grade,groups} of GRADE_RULES)for(const group of groups)assert.equal(classifyGrade(group+'.7','Operator').grade,grade,group);

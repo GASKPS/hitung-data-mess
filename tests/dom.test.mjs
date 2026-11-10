@@ -183,6 +183,64 @@ test('failed shared transaction keeps the old shared data and supports retry',as
   assert.match($('#residents-table').textContent,/TEAM001/);assert.equal(savedRows[0].mess[0].nik,'TEAM001');assert.equal(savedRows.length,1);
   $('#process-import').click();await until(()=>$('#residents-table').textContent.includes('TEAM002'));assert.equal(savedRows.length,1);assert.equal($('#cleanup-notice').hidden,true);
 });
+test('New hire cutoff, active precedence, warnings, and the filtered export survive a shared import',async()=>{
+  const row=(nik,name,date,room='01')=>[nik,name,'L','Equipment','P1.4','Operator','PT. HJF','Camp','B',room,date];
+  await upload('mess',sampleFile('intake-mess.xlsx',[
+    ['Database hunian'],
+    ['N I K','N A M A','GENDER','DEPARTMENT','GOL','J A B A T A N','PERUSAHAAN','LOKASI HUNIAN','BLOCK','NO KAMAR','TANGGAL MASUK MESS HUNIAN P2'],
+    row('F05230005','Aktif Belum Onsite','Belum Onsite'),
+    row('F01260004','Aktif Tanggal Kosong',''),
+    row('F10260001','Batas Oktober','Belum Onsite'),
+    row('T112600000002','Rekrutan November','06 November 2026'),
+    row('T112600000002','Rekrutan November','06 November 2026','02'),
+    row('F12250003','NIK Lama','Belum Onsite'),
+    row('F13260006','Bulan Tidak Valid',''),
+    row('','Rekrutan Tanpa NIK','Belum Onsite'),
+    row('','','','03'),
+    ['','Rekrutan Tidak Lengkap']
+  ]));
+  await upload('manpower',sampleFile('intake-manpower.xlsx',[
+    ['NIK','Perusahaan','Department','Subdept','Gol','Jabatan'],
+    ['F05230005','KPS','Quality','Lab','S4.9','Lead'],
+    ['F01260004','HJF','Production','Furnace','S1.1','Operator']
+  ]));
+  change('#new-hire-since','');assert.equal($('#process-import').disabled,true);
+  change('#new-hire-since','2026-10');$('#process-import').click();await until(()=>$('#total-value').textContent==='7orang');
+  assert.match($('#data-source').textContent,/2 karyawan aktif · 3 New hire/);
+  assert.match($('#issues-summary').textContent,/1 baris/);
+  change('#resident-status','active');assert.equal($('#total-value').textContent,'2orang');
+  assert.match($('#residents-table').textContent,/Aktif Belum Onsite/);
+  assert.match($('#residents-table').textContent,/Aktif Tanggal Kosong/);
+  assert.match($('#residents-table').textContent,/KPS/);
+  change('#resident-status','new-hire');assert.equal($('#total-value').textContent,'3orang');
+  assert.equal($('#report-table .report-total').lastElementChild.textContent,'3');
+  assert.match($('#residents-table').textContent,/Belum ada NIK/);
+  assert.doesNotMatch($('#residents-table').textContent,/NIK Lama/);
+  change('#resident-status','review');assert.equal($('#total-value').textContent,'2orang');
+  assert.match($('#residents-table').textContent,/Desember 2025 sebelum batas Oktober 2026/);
+  assert.match($('#residents-table').textContent,/Bulan dan tahun masuk tidak terbaca/);
+
+  change('#new-hire-since','2026-11');assert.equal($('#process-import').disabled,false);
+  $('#process-import').click();await until(()=>savedRows[0].source_info.newHireSince==='2026-11'&&$('#process-import').disabled);
+  change('#resident-status','new-hire');assert.equal($('#total-value').textContent,'2orang');
+  let blob;const create=URL.createObjectURL,revoke=URL.revokeObjectURL,click=window.HTMLAnchorElement.prototype.click;
+  URL.createObjectURL=b=>{blob=b;return 'blob:intake-test';};URL.revokeObjectURL=()=>{};window.HTMLAnchorElement.prototype.click=function(){};
+  try{
+    $('#export-button').click();await until(()=>blob!==undefined);
+    const book=X.read(await blob.arrayBuffer(),{type:'array'});
+    const rows=X.utils.sheet_to_json(book.Sheets.Penghuni,{header:1,defval:''});
+    assert.equal(rows.length,3);
+    const noNik=rows.find(r=>r[1]==='Rekrutan Tanpa NIK');
+    assert.equal(noNik[0],'');assert.equal(noNik[2],'HJF');assert.equal(noNik[8],'1');assert.equal(noNik[14],'New hire');assert.equal(noNik[16],'Belum Onsite');
+    assert.ok(rows.slice(1).every(r=>r[14]==='New hire'));
+  }finally{URL.createObjectURL=create;URL.revokeObjectURL=revoke;window.HTMLAnchorElement.prototype.click=click;}
+
+  $('#signout-button').click();await until(()=>$('#workspace').hidden);
+  await login('other@example.test');assert.equal($('#new-hire-since').value,'2026-11');
+  change('#resident-status','new-hire');assert.equal($('#total-value').textContent,'2orang');
+  assert.match($('#residents-table').textContent,/Rekrutan Tanpa NIK/);
+  assert.doesNotMatch($('#residents-table').textContent,/NEW-HIRE-ROW:/);
+});
 test('refresh loads a newer import from another user and blocked accounts lose data access',async()=>{
   savedRows[0]={...savedRows[0],mess:[{nik:'REFRESH001',name:'Dari pengguna lain'}],user_id:'other-user',created_at:'2026-10-22T12:00:00.000Z'};
   $('#refresh-data').click();await until(()=>$('#residents-table').textContent.includes('REFRESH001'));assert.match($('#last-updated').textContent,/Terakhir diperbarui/);

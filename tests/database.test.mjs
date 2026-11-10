@@ -2,6 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {PGlite} from '@electric-sql/pglite';
+import {reconcile} from '../dist/core.js';
+import {makeSnapshotPayload,restoreSnapshot} from '../dist/cloud.js';
 
 const users=['11111111-1111-4111-8111-111111111111','22222222-2222-4222-8222-222222222222','33333333-3333-4333-8333-333333333333'];
 const payload=label=>({label,mess:[{nik:'TEST001',name:'Test'}],manpower:[{nik:'TEST001',company:'HJF',department:'Production',subdepartment:'Furnace',grade:'S1.1',position:'Operator'}],counts:{total:1},source_info:{},invalid_rows:[]});
@@ -44,6 +46,18 @@ test('shared schema upgrades existing data and enforces atomic replacement and r
       await root();await db.exec(`create function public.test_block_delete() returns trigger language plpgsql as $$ begin raise exception 'Delete blocked'; end $$; create trigger test_block_delete before delete on public.mess_snapshots for each row execute function public.test_block_delete();`);
       await asUser(users[0]);await assert.rejects(()=>replace(payload('Harus batal')),/Delete blocked/);assert.equal((await all()).length,1);assert.equal((await all())[0].id,latest.id);
       await root();await db.exec('drop trigger test_block_delete on public.mess_snapshots; drop function public.test_block_delete();');
+    });
+    await t.test('the existing shared RPC preserves an import containing only new hires without NIK',async()=>{
+      const dataset=reconcile([{nik:'',name:'Rekrutan contoh',gender:'L',company:'HJF',department:'Production',grade:'P1.4',position:'Operator',location:'Camp',block:'A',room:'101',messEntry:'Belum Onsite'}],payload('Master').manpower,{newHireSince:'2026-10'});
+      await asUser(users[1]);latest=await replace(makeSnapshotPayload(dataset,'Rekrutan baru',users[1]));
+      await asUser(users[0]);const saved=await all();
+      assert.equal(saved.length,1);assert.equal(saved[0].id,latest.id);
+      const restored=restoreSnapshot(saved[0]);
+      assert.equal(restored.newHireSince,'2026-10');
+      assert.equal(restored.residents.length,1);
+      assert.equal(restored.residents[0].nik,'');
+      assert.equal(restored.residents[0].employmentStatus,'new-hire');
+      assert.equal(restored.residents[0].messEntry,'Belum Onsite');
     });
     await t.test('registered users cannot bypass atomic replacement with direct writes',async()=>{
       await asUser(users[0]);await assert.rejects(()=>db.query("insert into public.mess_snapshots (label) values ('Bypass')"),/permission denied/);
