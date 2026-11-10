@@ -1,4 +1,4 @@
-import {UNKNOWN,STATUS,GRADE_RULES,CLASSIFICATION_VERSION,collator,text,normalizeNik,normalizeHeader,suggestMapping,mapRows,reconcile,makeEmpty,filterResidents,filterOptions,summary,buildReport,gradeName,escapeHtml as e} from './core.js';
+import {UNKNOWN,STATUS,EMPLOYMENT,GRADE_RULES,CLASSIFICATION_VERSION,collator,text,normalizeNik,normalizeHeader,normalizeHireMonth,monthLabel,mapRows,reconcile,makeEmpty,filterResidents,filterOptions,summary,buildReport,gradeName,escapeHtml as e} from './core.js';
 import {readWorkbook,setSheet,setHeader,headers,downloadTemplate,exportWorkbook} from './workbook.js';
 import * as cloud from './cloud.js';
 
@@ -6,7 +6,7 @@ const $=selector=>document.querySelector(selector);
 const fmt=value=>new Intl.NumberFormat('id-ID').format(value);
 const date=value=>new Intl.DateTimeFormat('id-ID',{day:'numeric',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit',timeZone:'Asia/Jayapura'}).format(new Date(value));
 const freshFilters=()=>({company:'',department:'',subdepartment:'',grade:''});
-const fieldNames={nik:'NIK',name:'Nama',company:'Perusahaan',department:'Departemen',subdepartment:'Subdepartemen',grade:'Kode golongan',position:'Jabatan',location:'Lokasi mess',block:'Blok',room:'No. kamar'};
+const fieldNames={nik:'NIK',name:'Nama',gender:'Gender',company:'Perusahaan',department:'Departemen',subdepartment:'Subdepartemen',grade:'Kode golongan',position:'Jabatan',location:'Lokasi mess',block:'Blok',room:'No. kamar',messEntry:'Tanggal masuk mess hunian'};
 const state={data:makeEmpty(),files:{mess:null,manpower:null},requests:{mess:0,manpower:0},loading:0,busy:false,restoring:false,dirty:false,pendingFiles:false,filters:freshFilters(),query:'',status:'',page:1,reportGroup:'company',reportPage:1,activeUser:null,cleanupPending:null,lastUpdated:null};
 const pageSize=20;
 const selectedRows=()=>filterResidents(state.data.residents,state.filters,state.query,state.status);
@@ -44,10 +44,11 @@ function renderCounts(rows){
   $('#counts').querySelectorAll('[data-count-grade]').forEach(button=>button.onclick=()=>{state.filters.grade=state.filters.grade===button.dataset.countGrade?'':button.dataset.countGrade;state.page=1;state.reportPage=1;renderResults();});
 }
 function noteFor(row){
-  if(row.status==='unmatched')return 'NIK tidak ditemukan di manpower.';
+  if(row.reviewReason)return row.reviewReason;
+  if(row.status==='unmatched'&&row.employmentStatus!=='new-hire')return 'NIK tidak ditemukan di manpower.';
   if(row.status==='ambiguous')return 'Satu NIK memiliki referensi manpower yang berbeda.';
   if(row.classificationReason)return row.classificationReason;
-  if(row.incomplete)return 'Perusahaan, departemen, atau subdepartemen belum lengkap.';
+  if(row.incomplete)return row.employmentStatus==='new-hire'?'Perusahaan, departemen, atau golongan belum lengkap.':'Perusahaan, departemen, atau subdepartemen belum lengkap.';
   return '';
 }
 function renderNotice(rows){
@@ -74,7 +75,7 @@ function renderResidentTable(rows){
   const sorted=[...rows].sort((a,b)=>collator.compare(a.name,b.name)||collator.compare(a.nik,b.nik));
   const pages=Math.max(1,Math.ceil(sorted.length/pageSize));state.page=Math.min(state.page,pages);const start=(state.page-1)*pageSize;
   root.innerHTML=`<div class="table-scroll"><table class="residents"><thead><tr><th scope="col">Nama / NIK</th><th scope="col">Perusahaan</th><th scope="col">Departemen</th><th scope="col">Subdepartemen</th><th scope="col">Jabatan</th><th scope="col">Golongan</th><th scope="col">Lokasi mess</th><th scope="col">Keterangan</th></tr></thead><tbody>${sorted.slice(start,start+pageSize).map(r=>{
-    const note=noteFor(r);return `<tr><td class="person-name">${e(r.name)}<span class="nik">${e(r.nik)}</span></td><td class="company-cell">${e(r.company)||'—'}</td><td>${e(r.department)||'—'}</td><td>${e(r.subdepartment)||'—'}</td><td class="job-cell">${e(r.position)||'—'}</td><td class="grade-cell${r.grade?'':' unclassified'}">${e(r.grade)||'Periksa'}${r.gradeRaw?`<span class="secondary-text">${e(r.gradeRaw)}</span>`:''}</td><td>${e(r.locations.join(', '))||'—'}${r.rooms.length?`<span class="secondary-text">${e(r.rooms.join(', '))}</span>`:''}</td><td class="remark${r.status==='ambiguous'?' error':note?' warning':''}">${note?e(note):'Cocok'}${r.messOccurrences>1?`<span class="secondary-text">${r.messOccurrences} baris mess → 1 penghuni</span>`:''}</td></tr>`;}).join('')}</tbody></table></div><div class="table-footer"><span>${fmt(start+1)}–${fmt(Math.min(start+pageSize,rows.length))} dari ${fmt(rows.length)} penghuni</span>${pagination(state.page,pages,'resident')}</div>`;
+    const note=noteFor(r),newHire=r.employmentStatus==='new-hire';return `<tr><td class="person-name">${e(r.name)}<span class="nik">${e(r.nik)||'Belum ada NIK'}</span></td><td class="company-cell">${e(r.company)||'—'}</td><td>${e(r.department)||'—'}</td><td>${e(r.subdepartment)||'—'}</td><td class="job-cell">${e(r.position)||'—'}</td><td class="grade-cell${r.grade?'':' unclassified'}">${e(r.grade)||'Periksa'}${r.gradeRaw?`<span class="secondary-text">${e(r.gradeRaw)}</span>`:''}</td><td>${e(r.locations.join(', '))||'—'}${r.rooms.length?`<span class="secondary-text">${e(r.rooms.join(', '))}</span>`:''}</td><td class="remark${r.status==='ambiguous'?' error':note?' warning':''}">${e(newHire?'New hire':note||EMPLOYMENT[r.employmentStatus])}${newHire&&note?`<span class="secondary-text">${e(note)}</span>`:''}${r.messOccurrences>1?`<span class="secondary-text">${r.messOccurrences} baris mess → 1 penghuni</span>`:''}</td></tr>`;}).join('')}</tbody></table></div><div class="table-footer"><span>${fmt(start+1)}–${fmt(Math.min(start+pageSize,rows.length))} dari ${fmt(rows.length)} penghuni</span>${pagination(state.page,pages,'resident')}</div>`;
   bindPagination(root);
 }
 function renderReport(rows){
@@ -93,12 +94,13 @@ function renderResults(){
   $('#recap-section').hidden=!state.data.residents.length;
   $('#export-button').disabled=!state.data.residents.length;
   $('#resident-search').disabled=!state.data.residents.length;$('#resident-status').disabled=!state.data.residents.length;
-  $('#data-source').textContent=state.data.mode==='empty'?'Belum ada data yang diproses.':`${fmt(state.data.residents.length)} NIK unik · ${fmt(summary(state.data.residents).matched)} cocok dengan manpower`;
+  const stats=summary(state.data.residents);
+  $('#data-source').textContent=state.data.mode==='empty'?'Belum ada data yang diproses.':`${fmt(stats.total)} data mess · ${fmt(stats.active)} karyawan aktif · ${fmt(stats.newHire)} New hire`;
   $('#last-updated').hidden=!state.lastUpdated;$('#last-updated').textContent=state.lastUpdated?`Terakhir diperbarui ${date(state.lastUpdated)} WIT`:'';
   updateSaveStatus();
 }
 function resetFilters(){state.filters=freshFilters();state.query='';state.status='';state.page=1;state.reportPage=1;$('#resident-search').value='';$('#resident-status').value='';renderResults();}
-function fieldList(type){return type==='mess'?['nik','name','location','block','room']:['nik','name','company','department','subdepartment','grade','position'];}
+function fieldList(type){return type==='mess'?['nik','name','gender','department','grade','position','company','location','block','room','messEntry']:['nik','name','company','department','subdepartment','grade','position'];}
 function mappingError(type){
   const source=state.files[type];if(!source)return `Pilih file ${type==='mess'?'data mess':'manpower'} terlebih dahulu.`;
   const required=type==='mess'?['nik']:['nik','department','subdepartment','grade'];
@@ -111,11 +113,13 @@ function mappingError(type){
 }
 function updateUpload(){
   const both=state.files.mess&&state.files.manpower,locked=!cloud.session||!cloud.access.allowed||state.busy||state.restoring;
-  $('#process-import').disabled=!both||state.loading>0||locked||!state.pendingFiles;
+  const month=$('#new-hire-since'),validMonth=normalizeHireMonth(month.value);
+  month.disabled=locked;
+  $('#process-import').disabled=!both||state.loading>0||locked||!state.pendingFiles||!validMonth;
   for(const type of ['mess','manpower']){$(`#file-${type}`).disabled=locked;$(`#mapping-${type}`).querySelectorAll('input,select').forEach(input=>input.disabled=locked);}
   $('#signout-button').disabled=state.busy;
   $('#refresh-data').disabled=!cloud.session||state.busy||state.restoring;
-  $('#upload-help').textContent=state.restoring?'Memuat data terakhir…':state.loading?'Sedang membaca file…':state.busy?'Mencocokkan dan menyimpan data…':!both?'Pilih kedua file untuk mulai.':state.pendingFiles?'File siap. Klik Tampilkan data.':'Data sudah diproses dan disimpan.';
+  $('#upload-help').textContent=state.restoring?'Memuat data terakhir…':state.loading?'Sedang membaca file…':state.busy?'Mencocokkan dan menyimpan data…':!validMonth?'Pilih bulan dan tahun awal New hire.':!both?'Pilih kedua file untuk mulai.':state.pendingFiles?'File siap. Klik Tampilkan data.':'Data sudah diproses dan disimpan.';
 }
 function renderMapping(type){
   const source=state.files[type];if(!source)return;const hs=headers(source),root=$(`#mapping-${type}`),details=$(`#mapping-details-${type}`);
@@ -142,14 +146,16 @@ async function loadFile(type,file){
 async function processImport(){
   if(state.busy||state.loading||state.restoring||!cloud.session||!cloud.access.allowed||!state.pendingFiles)return;
   const epoch=authEpoch;
+  const newHireSince=normalizeHireMonth($('#new-hire-since').value);
+  if(!newHireSince){importError('Pilih bulan dan tahun awal New hire.');return;}
   for(const type of ['mess','manpower']){const error=mappingError(type);if(error){importError(error);if(state.files[type])$(`#mapping-details-${type}`).open=true;return;}}
   state.busy=true;updateUpload();importError('');
   try{
     await new Promise(resolve=>setTimeout(resolve,25));
     if(epoch!==authEpoch)return;
-    const mapped={};for(const type of ['mess','manpower']){const s=state.files[type];mapped[type]=mapRows(s.rows,s.headerIndex,s.mapping,type,{company:s.company});if(!mapped[type].rows.length)throw new Error(`Tidak ada NIK valid pada data ${type}. Periksa sheet, baris judul, dan kolom NIK.`);if(mapped[type].rows.length>50000)throw new Error('Maksimal 50.000 baris valid per sumber.');}
+    const mapped={};for(const type of ['mess','manpower']){const s=state.files[type];mapped[type]=mapRows(s.rows,s.headerIndex,s.mapping,type,{company:s.company});if(!mapped[type].rows.length)throw new Error(`Tidak ada NIK valid${type==='mess'?' atau data New hire yang lengkap':''} pada data ${type}. Periksa sheet, baris judul, dan kolom yang dipilih.`);if(mapped[type].rows.length>50000)throw new Error('Maksimal 50.000 baris valid per sumber.');}
     const sources=Object.fromEntries(['mess','manpower'].map(type=>{const s=state.files[type];return [type,{name:s.name,sheet:s.sheet,headerRow:s.headerIndex+1,rows:mapped[type].rows.length}];}));
-    const dataset=reconcile(mapped.mess.rows,mapped.manpower.rows,{sources,invalid:[...mapped.mess.invalid,...mapped.manpower.invalid]});
+    const dataset=reconcile(mapped.mess.rows,mapped.manpower.rows,{sources,newHireSince,invalid:[...mapped.mess.invalid,...mapped.manpower.invalid]});
     const saved=await cloud.saveSnapshot(dataset,`Data mess — ${date(dataset.importedAt)} WIT`);
     if(epoch!==authEpoch)return;
     if(saved.latestId&&saved.latestId!==saved.id){const latest=await cloud.loadSnapshot(saved.latestId);if(epoch!==authEpoch)return;state.cleanupPending=null;applySavedData(latest);toast('Data yang lebih baru dari sesi lain sudah dimuat.');return;}
@@ -161,19 +167,20 @@ async function processImport(){
 async function exportData(){
   await withButton($('#export-button'),async()=>{
     const rows=selectedRows(),included=new Set(rows.map(r=>r.nik));
-    const header=['NIK','Nama','Perusahaan','Departemen','Subdepartemen','Jabatan','Kode asli','Kelompok jabatan','Golongan hasil klasifikasi','Lokasi mess','Blok / kamar','Hasil NIK','Catatan','Baris mess untuk NIK'];
-    const values=r=>[r.nik,r.name,r.company,r.department,r.subdepartment,r.position,r.gradeRaw,r.positionGroup,r.grade,r.locations.join('; '),r.rooms.join('; '),STATUS[r.status],noteFor(r),r.messOccurrences];
-    const sheets=[{name:'Penghuni',rows:[header,...rows.map(values)],widths:[20,28,17,25,25,35,14,18,26,30,22,22,50,23]}];
+    const header=['NIK','Nama','Perusahaan','Departemen','Subdepartemen','Jabatan','Kode asli','Kelompok jabatan','Golongan hasil klasifikasi','Lokasi mess','Blok / kamar','Hasil NIK','Catatan','Baris mess untuk NIK','Status karyawan','Gender','Tanggal masuk mess hunian','Bulan masuk dari NIK'];
+    const values=r=>[r.nik,r.name,r.company,r.department,r.subdepartment,r.position,r.gradeRaw,r.positionGroup,r.grade,r.locations.join('; '),r.rooms.join('; '),STATUS[r.status],noteFor(r),r.messOccurrences,EMPLOYMENT[r.employmentStatus],r.gender,r.messEntry,monthLabel(r.hireMonth)];
+    const sheets=[{name:'Penghuni',rows:[header,...rows.map(values)],widths:[20,28,17,25,25,35,14,18,26,30,22,22,50,23,20,12,28,22]}];
     for(const [field,name] of [['company','Rekap perusahaan'],['department','Rekap departemen'],['subdepartment','Rekap subdepartemen']]){const report=buildReport(rows,field);sheets.push({name,rows:[report.headers,...report.rows,report.totals]});}
     sheets.push({name:'Perlu diperiksa',rows:[header,...rows.filter(r=>r.needsReview).map(values)]});
     sheets.push({name:'NIK mess berulang',rows:[['NIK','Nama','Baris sumber','Lokasi','Blok','Kamar'],...state.data.duplicateMess.filter(r=>included.has(normalizeNik(r.nik))).map(r=>[r.nik,r.name,r.row||'',r.location||'',r.block||'',r.room||''])]});
     sheets.push({name:'Baris ditolak',rows:[['Sumber','Baris Excel','Nama','Alasan'],...state.data.invalid.map(r=>[r.source,r.row,r.name,r.reason])]});
-    sheets.push({name:'Keterangan',rows:[['Keterangan','Nilai'],['Waktu ekspor',date(new Date())+' WIT'],['Sumber mess',state.data.sources.mess?.name||''],['Sumber manpower',state.data.sources.manpower?.name||''],...Object.entries(state.filters).map(([k,v])=>['Filter '+fieldNames[k],v||'Semua']),['Pencarian',state.query],['Keterangan data',$('#resident-status').selectedOptions[0].textContent],['Total penghuni',rows.length],['Versi klasifikasi',CLASSIFICATION_VERSION],...GRADE_RULES.map(r=>['Golongan '+r.grade,r.groups.join(', ')]),['MT','Khusus P1 dengan jabatan Management Trainee, termasuk tambahan departemen setelah koma.'],['Hitungan','Satu NIK unik pada data mess dihitung satu penghuni.'],['Baris ditolak','Mencakup seluruh sumber impor, karena baris tanpa NIK tidak dapat dihubungkan ke filter.']]});
+    sheets.push({name:'Keterangan',rows:[['Keterangan','Nilai'],['Waktu ekspor',date(new Date())+' WIT'],['Sumber mess',state.data.sources.mess?.name||''],['Sumber manpower',state.data.sources.manpower?.name||''],...Object.entries(state.filters).map(([k,v])=>['Filter '+fieldNames[k],v||'Semua']),['Pencarian',state.query],['Filter status',$('#resident-status').selectedOptions[0].textContent],['Bulan awal New hire',monthLabel(state.data.newHireSince)||'Tidak ditetapkan'],['Total penghuni',rows.length],['Versi klasifikasi',CLASSIFICATION_VERSION],...GRADE_RULES.map(r=>['Golongan '+r.grade,r.groups.join(', ')]),['MT','Khusus P1 dengan jabatan Management Trainee, termasuk tambahan departemen setelah koma.'],['Hitungan','Satu NIK unik dihitung satu penghuni. New hire tanpa NIK dihitung per baris lengkap.'],['Baris ditolak','Mencakup seluruh sumber impor. Baris yang ditolak tidak masuk hitungan penghuni.']]});
     await exportWorkbook(sheets,`Data_Mess_${new Intl.DateTimeFormat('en-CA',{year:'numeric',month:'2-digit',day:'2-digit',timeZone:'Asia/Jayapura'}).format(new Date())}.xlsx`);toast('Excel diunduh sesuai filter yang dipilih.');
   },'Mengunduh…');
 }
 function clearCloudData(){
   state.data=makeEmpty();state.dirty=false;state.pendingFiles=false;state.files={mess:null,manpower:null};state.cleanupPending=null;state.restoring=false;state.lastUpdated=null;
+  $('#new-hire-since').value=$('#new-hire-since').defaultValue;
   for(const type of ['mess','manpower']){state.requests[type]++;$(`#file-${type}`).value='';$(`#file-${type}-status`).textContent='Excel atau CSV, maksimal 20 MB.';$(`#file-${type}-status`).classList.remove('loaded');$(`#mapping-details-${type}`).hidden=true;}
   $('#restore-notice').hidden=true;$('#data-access-notice').hidden=true;importError('');updateUpload();resetFilters();
 }
@@ -208,7 +215,8 @@ function renderStorage(){
   if(storageStatus==='ready'&&account)fillSnapshots();
 }
 function applySavedData(saved){
-  state.data=reconcile(saved.mess,saved.manpower,{sources:saved.source_info,invalid:saved.invalid_rows,importedAt:saved.imported_at,mode:'cloud'});state.dirty=false;state.pendingFiles=false;state.files={mess:null,manpower:null};state.lastUpdated=saved.created_at;
+  state.data=cloud.restoreSnapshot(saved);state.dirty=false;state.pendingFiles=false;state.files={mess:null,manpower:null};state.lastUpdated=saved.created_at;
+  $('#new-hire-since').value=state.data.newHireSince||$('#new-hire-since').defaultValue;
   if(cloud.access.mode==='shared')state.cleanupPending=null;
   for(const type of ['mess','manpower']){$(`#file-${type}`).value='';$(`#mapping-details-${type}`).hidden=true;$(`#file-${type}-status`).textContent=`Sumber tersimpan: ${state.data.sources[type]?.name||'—'}`;$(`#file-${type}-status`).classList.add('loaded');}
   importError('');updateUpload();resetFilters();
@@ -258,6 +266,7 @@ function init(){
   $('#resident-status').onchange=event=>{state.status=event.target.value;state.page=1;state.reportPage=1;renderResults();};
   $('#report-group').onchange=event=>{state.reportGroup=event.target.value;state.reportPage=1;renderReport(selectedRows());};
   $('#reset-filters').onclick=resetFilters;$('#process-import').onclick=processImport;$('#export-button').onclick=exportData;
+  $('#new-hire-since').onchange=()=>{if(state.files.mess&&state.files.manpower)state.pendingFiles=true;importError('');updateUpload();};
   for(const type of ['mess','manpower'])$(`#file-${type}`).onchange=event=>{if(event.target.files[0])loadFile(type,event.target.files[0]);};
   $('#download-template').onclick=event=>withButton(event.currentTarget,async()=>{await downloadTemplate();toast('Template Excel berhasil diunduh.');},'Menyiapkan…');
   $('#rules-button').onclick=()=>$('#rules-dialog').showModal();$('#storage-button').onclick=()=>{renderStorage();$('#storage-dialog').showModal();};

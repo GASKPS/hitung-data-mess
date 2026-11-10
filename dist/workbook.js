@@ -43,8 +43,14 @@ export async function exportWorkbook(sheets,name) {
 }
 export async function downloadTemplate() {
   return exportWorkbook([
-    {name:'Data Mess',rows:[['NIK','Nama','Lokasi Mess','Blok','No Kamar'],['CONTOH001','Karyawan Contoh A','Surya Residence','A','101'],['CONTOH002','Karyawan Contoh B','Cendana Residence','B','202'],['CONTOH003','Karyawan Contoh C','Surya Residence','A','102']]},
+    {name:'Data Mess',rows:[
+      ['NIK','Nama','Gender','Department','Gol','Jabatan','Perusahaan','Lokasi Mess','Block','No Kamar','Tanggal Masuk Mess Hunian P2'],
+      ['CONTOH001','Karyawan Contoh A','L','Production','P1.5','Management Trainee, Production','HJF','Surya Residence','A','101',''],
+      ['CONTOH002','Karyawan Contoh B','L','Equipment','P1.5','Crawler Crane Operator','KPS','Cendana Residence','B','202',''],
+      ['CONTOH003','Karyawan Contoh C','P','Production','S3.7','Translator','HJF','Surya Residence','A','102',''],
+      ['','New Hire Contoh','L','Equipment','P1.4','Operator','KPS','Cendana Residence','B','203','Belum Onsite']
+    ]},
     {name:'Data Manpower',rows:[['NIK','Nama','Perusahaan','Department','Subdept','Gol','Jabatan'],['CONTOH001','Karyawan Contoh A','HJF','Production','Furnace','P1.5','Management Trainee, Production'],['CONTOH002','Karyawan Contoh B','KPS','Equipment','Operations','P1.5','Crawler Crane Operator'],['CONTOH003','Karyawan Contoh C','HJF','Production','Furnace','S3.7','Translator']]},
-    {name:'Petunjuk',rows:[['Petunjuk'],['Gunakan sheet Data Mess untuk mess dan Data Manpower untuk manpower. Ganti seluruh baris contoh dengan data Anda.'],['NIK wajib berbentuk Teks. Awalan huruf dan nol dipertahankan; spasi dan huruf besar/kecil diseragamkan.'],['Cost Center hanya dipakai sebagai perusahaan jika isinya memang nama perusahaan.'],['Golongan 1: S1, P1. Golongan 2: S2, S3, P2, M1, M2. Golongan 3: S4, P3, P4, M3, M4. Golongan 4: P5, M5, M6, M7. Golongan 5: X1, X2, X3.'],['Khusus P1 dengan jabatan Management Trainee (termasuk tambahan departemen setelah koma) masuk MT. P1 tanpa jabatan perlu diperiksa.'],['Kode asli seperti P1.5 tetap disimpan dan ikut diekspor.']]}
+    {name:'Petunjuk',rows:[['Petunjuk'],['Gunakan sheet Data Mess untuk mess dan Data Manpower untuk manpower. Ganti seluruh baris contoh dengan data Anda.'],['Gunakan format Teks untuk NIK yang sudah ada. Awalan huruf dan nol dipertahankan.'],['NIK yang ada di manpower termasuk Karyawan aktif, terlepas dari isi tanggal masuk mess.'],['Jika NIK belum terbit, isi nama, gender, departemen, golongan, jabatan, perusahaan, lokasi, blok, dan kamar agar masuk New hire.'],['Pilih Bulan awal New hire sebelum memproses impor. NIK yang belum ada di manpower dan lebih lama dari batas akan ditandai untuk diperiksa.'],['Cost Center hanya dipakai sebagai perusahaan jika isinya memang nama perusahaan.'],['Golongan 1: S1, P1. Golongan 2: S2, S3, P2, M1, M2. Golongan 3: S4, P3, P4, M3, M4. Golongan 4: P5, M5, M6, M7. Golongan 5: X1, X2, X3.'],['Khusus P1 dengan jabatan Management Trainee (termasuk tambahan departemen setelah koma) masuk MT. P1 tanpa jabatan perlu diperiksa.'],['Kode asli seperti P1.5 tetap disimpan dan ikut diekspor.']]}
   ],'Template_Mess_Insight.xlsx');
 }

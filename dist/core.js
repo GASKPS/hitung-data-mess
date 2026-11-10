@@ -1,5 +1,6 @@
 export const UNKNOWN = 'Belum teridentifikasi';
-export const STATUS = { matched: 'Cocok', unmatched: 'Tidak ditemukan', ambiguous: 'Referensi ganda' };
+export const STATUS = { matched: 'Cocok', unmatched: 'Tidak ditemukan', ambiguous: 'Referensi ganda', 'no-nik': 'Belum ada NIK' };
+export const EMPLOYMENT = { active: 'Karyawan aktif', 'new-hire': 'New hire', review: 'Perlu diperiksa' };
 export const collator = new Intl.Collator('id', { numeric: true, sensitivity: 'base' });
 export const text = value => String(value ?? '').trim();
 export function normalizeNik(value) { return text(value).replace(/^'/, '').replace(/[\s\u200B-\u200D\uFEFF]/g, '').toUpperCase(); }
@@ -40,12 +41,28 @@ export const ALIASES = {
   subdepartment: ['subdept','subdepartment','subdepartemen','subdep','subdivisi','section'],
   grade: ['gol','golongan','grade','level','golongankaryawan'],
   position: ['jabatan','namajabatan','posisi','namaposisi','position','jobtitle','jobposition','positionname'],
-  location: ['lokasimess','mess','namamess','lokasi','residence','camp'],
+  location: ['lokasimess','lokasihunian','mess','namamess','lokasi','residence','camp'],
   room: ['nokamar','nomorkamar','kamar','room','roomnumber'],
   block: ['blok','block'],
   floor: ['floor','lantai'],
-  gender: ['gender','jeniskelamin','sex']
+  gender: ['gender','gendre','jeniskelamin','sex'],
+  messEntry: ['tanggalmasukmesshunian','tanggalmasukmesshunianp2','tanggalmasukmess','tglmasukmesshunian','tglmasukmesshunianp2','tglmasukmess']
 };
+const newHireFields = {name:'nama',gender:'gender',department:'departemen',grade:'golongan',position:'jabatan',company:'perusahaan',location:'lokasi mess',block:'blok',room:'kamar'};
+const missingNewHireFields = row => Object.keys(newHireFields).filter(key => !text(row[key]) || /^[-–—]+$/.test(text(row[key])));
+export function normalizeHireMonth(value) {
+  const month = text(value);
+  return /^[1-9]\d{3}-(0[1-9]|1[0-2])$/.test(month) ? month : '';
+}
+export function hireMonthFromNik(value) {
+  const parts = normalizeNik(value).match(/^[A-Z](0[1-9]|1[0-2])(\d{2})\d+$/);
+  return parts ? `20${parts[2]}-${parts[1]}` : '';
+}
+const monthFormatter = new Intl.DateTimeFormat('id-ID',{month:'long',year:'numeric',timeZone:'UTC'});
+export function monthLabel(value) {
+  const month = normalizeHireMonth(value);
+  return month ? monthFormatter.format(new Date(`${month}-01T00:00:00Z`)) : '';
+}
 export function suggestMapping(headers) {
   const normalized = headers.map(normalizeHeader);
   return Object.fromEntries(Object.entries(ALIASES).map(([field, aliases]) => [field, normalized.findIndex(h => aliases.includes(h))]));
@@ -70,7 +87,15 @@ export function mapRows(rows, headerIndex, mapping, type, options = {}) {
     item.nik = normalizeNik(item.nik);
     // Repeated print headers are not employee records.
     if (ALIASES.nik.includes(normalizeHeader(item.nik))) continue;
-    if (!item.nik) { invalid.push({ row: i + 1, name: item.name || '', reason: 'NIK kosong', source: type }); continue; }
+    if (!item.nik) {
+      if (type === 'mess') {
+        if (!item.name) continue; // A bed with no NIK or name is not a resident.
+        const missing = missingNewHireFields(item);
+        if (!missing.length) { result.push(item); continue; }
+        invalid.push({row:i + 1, name:item.name, reason:`NIK kosong; lengkapi data New hire: ${missing.map(key=>newHireFields[key]).join(', ')}.`, source:type});
+      } else invalid.push({row:i + 1, name:item.name || '', reason:'NIK kosong', source:type});
+      continue;
+    }
     if (/^[+-]?\d+(?:[.,]\d+)?[Ee][+-]?\d+$/.test(item.nik)) {
       invalid.push({row:i + 1, name:item.name || '', reason:'NIK berupa notasi ilmiah; ubah menjadi teks di Excel', source:type}); continue;
     }
@@ -88,6 +113,7 @@ function classificationSignature(row) {
 }
 export function reconcile(mess, manpower, options = {}) {
   const master = new Map(), residence = new Map(), duplicateMess = [], duplicateManpower = [];
+  const newHireSince = normalizeHireMonth(options.newHireSince);
   const dictionaries = Object.fromEntries(['department','subdepartment','location'].map(k=>[k,new Map()]));
   const canonical=(field,value)=>{
     const clean=text(value).replace(/\s+/g,' '); if(!clean)return '';
@@ -105,33 +131,47 @@ export function reconcile(mess, manpower, options = {}) {
   }
   for (const row of mess) {
     const nik = normalizeNik(row.nik);
-    if (!nik) continue;
-    const list = residence.get(nik) || [];
+    if (!nik && missingNewHireFields(row).length) continue;
+    // Without a NIK, separate source rows are not merged by name.
+    const key = nik || Symbol();
+    const list = residence.get(key) || [];
     if (list.length) duplicateMess.push(row);
-    list.push(row); residence.set(nik, list);
+    list.push(row); residence.set(key, list);
   }
-  const residents = [...residence].map(([nik, rooms]) => {
+  const residents = [...residence.values()].map(rooms => {
+    const home = rooms[0];
+    const nik = normalizeNik(home.nik);
     const candidates = master.get(nik) || [];
     const variants = new Set(candidates.map(classificationSignature));
-    const status = !candidates.length ? 'unmatched' : variants.size > 1 ? 'ambiguous' : 'matched';
-    const found = status === 'matched' ? candidates[0] : {};
-    const home = rooms[0];
+    const hireMonth = hireMonthFromNik(nik);
+    const eligibleNewHire = !nik || (newHireSince && hireMonth && hireMonth >= newHireSince);
+    const employmentStatus = candidates.length ? 'active' : eligibleNewHire ? 'new-hire' : 'review';
+    const status = !nik ? 'no-nik' : !candidates.length ? 'unmatched' : variants.size > 1 ? 'ambiguous' : 'matched';
+    const fromMess = employmentStatus === 'new-hire';
+    const found = status === 'matched' ? candidates[0] : fromMess ? {...home,gradeRaw:home.grade,...classifyGrade(home.grade,home.position)} : {};
+    const required = fromMess ? ['company','department','grade'] : ['company','department','subdepartment','grade'];
+    const incomplete = (status === 'matched' || fromMess) && required.some(k => !text(found[k]));
+    const reviewReason = employmentStatus === 'review' && newHireSince
+      ? hireMonth
+        ? `NIK tidak ditemukan di manpower. Bulan masuk ${monthLabel(hireMonth)} sebelum batas ${monthLabel(newHireSince)}.`
+        : 'NIK tidak ditemukan di manpower. Bulan dan tahun masuk tidak terbaca dari NIK.'
+      : '';
     return {
       nik, name: home.name || found.name || 'Tanpa nama',
       company: companyLabel(found.company), department: canonical('department',found.department),
       subdepartment: canonical('subdepartment',found.subdepartment), grade: found.grade || '', gradeRaw: found.gradeRaw || found.grade || '',
       position: text(found.position), positionGroup: found.positionGroup || '', classificationReason: found.classificationReason || '',
       location: canonical('location',home.location), room: home.room || '', block: home.block || '', floor: home.floor || '',
+      gender: text(home.gender || found.gender), messEntry: text(home.messEntry), hireMonth, employmentStatus, reviewReason,
       status, messOccurrences: rooms.length, manpowerOccurrences: candidates.length,
       locations: [...new Set(rooms.map(r => canonical('location',r.location)).filter(Boolean))],
       rooms: [...new Set(rooms.map(r => [r.block,r.room].filter(Boolean).join(' / ')).filter(Boolean))],
       sourceRow: home.row || null,
-      incomplete: status === 'matched' && ['company','department','subdepartment','grade'].some(k => !found[k]),
-      needsReview: status !== 'matched' || ['company','department','subdepartment','grade'].some(k => !found[k])
+      incomplete, needsReview: employmentStatus === 'review' || status === 'ambiguous' || incomplete
     };
   });
   return {
-    residents, mess, manpower, duplicateMess, duplicateManpower,
+    residents, mess, manpower, duplicateMess, duplicateManpower, newHireSince,
     invalid: options.invalid || [], gradeMode: 'raw', classificationVersion: CLASSIFICATION_VERSION,
     sources: options.sources || {}, importedAt: options.mode==='empty'?null:options.importedAt || new Date().toISOString(),
     mode: options.mode || 'local'
@@ -142,7 +182,7 @@ export function filterResidents(rows, filters = {}, query = '', status = '') {
   const q = text(query).toLocaleLowerCase('id');
   return rows.filter(r => Object.entries(filters).every(([key,val]) => !val || (key === 'location' ? r.locations?.includes(val) || (r.location || UNKNOWN) === val : (r[key] || UNKNOWN) === val))
     && (!q || `${r.nik} ${r.name} ${r.company} ${r.location} ${r.position} ${r.department} ${r.subdepartment}`.toLocaleLowerCase('id').includes(q))
-    && (!status || (status === 'review' ? r.needsReview : status === 'unclassified' ? !r.grade : status === 'duplicate' ? r.messOccurrences > 1 : status === 'incomplete' ? r.incomplete : r.status === status)));
+    && (!status || (status === 'active' || status === 'new-hire' ? r.employmentStatus === status : status === 'review' ? r.needsReview : status === 'unclassified' ? !r.grade : status === 'duplicate' ? r.messOccurrences > 1 : status === 'incomplete' ? r.incomplete : r.status === status)));
 }
 export function filterOptions(rows, filters, field) {
   const order = ['company','department','subdepartment','grade','location'];
@@ -164,7 +204,9 @@ export function aggregate(rows, field) {
 export function summary(rows) {
   const matched = rows.filter(r => r.status === 'matched').length;
   return { total: rows.length, matched, review: rows.filter(r=>r.needsReview).length,
-    companies: new Set(rows.filter(r=>r.status==='matched' && r.company).map(r=>r.company)).size,
+    active: rows.filter(r=>r.employmentStatus==='active').length,
+    newHire: rows.filter(r=>r.employmentStatus==='new-hire').length,
+    companies: new Set(rows.map(r=>r.company).filter(Boolean)).size,
     departments: new Set(rows.map(r=>r.department).filter(Boolean)).size,
     incomplete: rows.filter(r=>r.incomplete).length,
     duplicate: rows.filter(r=>r.messOccurrences>1).length,

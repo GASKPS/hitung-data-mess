@@ -1,4 +1,4 @@
-import { summary } from './core.js';
+import { reconcile, summary } from './core.js';
 export const DEFAULT_CONFIG = Object.freeze({
   url: 'https://jajtnydqgsmenbsjpllu.supabase.co',
   key: 'sb_publishable_mM_l9iZSXavTD7x4gec2nw_JybjfE78'
@@ -103,12 +103,31 @@ export async function removeOlderSnapshots(snapshot) {
   if(error)throw explainError(error);
   return latest;
 }
+const MESS_FORMAT = 'new-hire-rows-v1';
+const PENDING_NIK_KEY = 'NEW-HIRE-ROW:';
+export function makeSnapshotPayload(dataset,label,userId) {
+  const source_info={...dataset.sources,classification:dataset.classificationVersion,newHireSince:dataset.newHireSince};
+  const hasPendingNik=dataset.mess.some(row=>!row.nik);
+  if(hasPendingNik)source_info.messFormat=MESS_FORMAT;
+  // The existing Supabase RPC requires a nonempty row key in mess[].nik.
+  // This transport key is decoded before any matching, display, or export.
+  const mess=hasPendingNik?dataset.mess.map((row,index)=>row.nik?row:{...row,nik:PENDING_NIK_KEY+(index+1),nikPending:true}):dataset.mess;
+  return {user_id:userId,label:label.trim().slice(0,160)||'Data mess',grade_mode:'raw',source_info,imported_at:dataset.importedAt,counts:summary(dataset.residents),mess,manpower:dataset.manpower,invalid_rows:dataset.invalid||[]};
+}
+export function restoreSnapshot(saved) {
+  const {newHireSince,messFormat,...sources}=saved.source_info||{};
+  const mess=messFormat===MESS_FORMAT?saved.mess.map(row=>{
+    if(row.nikPending!==true||typeof row.nik!=='string'||!row.nik.startsWith(PENDING_NIK_KEY))return row;
+    const {nikPending,...rest}=row;
+    return {...rest,nik:''};
+  }):saved.mess;
+  return reconcile(mess,saved.manpower,{sources,newHireSince,invalid:saved.invalid_rows,importedAt:saved.imported_at,mode:'cloud'});
+}
 export async function saveSnapshot(dataset,label='Data mess') {
   await requireDataAccess();
   if(dataset.mode==='demo'||!dataset.residents?.length||!dataset.mess?.length||!dataset.manpower?.length)throw new Error('Unggah dan proses kedua file terlebih dahulu. Data kosong tidak mengganti data tersimpan.');
   const ownerId=session.user.id;
-  const stats=summary(dataset.residents);
-  const payload={user_id:session.user.id,label:label.trim().slice(0,160) || 'Data mess',grade_mode:'raw',source_info:{...dataset.sources,classification:dataset.classificationVersion},imported_at:dataset.importedAt,counts:stats,mess:dataset.mess,manpower:dataset.manpower,invalid_rows:dataset.invalid || []};
+  const payload=makeSnapshotPayload(dataset,label,ownerId);
   if(access.mode==='shared'){
     const {data,error}=await client.rpc('replace_mess_data',{p_data:payload});
     if(error)throw explainError(error);
