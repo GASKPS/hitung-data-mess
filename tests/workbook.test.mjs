@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readWorkbook,setSheet} from '../dist/workbook.js';
 import * as X from '../dist/assets/xlsx.mjs';
-import {mapRows} from '../dist/core.js';
+import {mapRows,reconcile} from '../dist/core.js';
 const file=(name,bytes)=>({name,size:bytes.byteLength,arrayBuffer:async()=>bytes.buffer.slice(bytes.byteOffset,bytes.byteOffset+bytes.byteLength)});
 test('real XLSX input preserves text NIK and numeric zero-padding across multiple sheets',async()=>{
   const book=X.utils.book_new();X.utils.book_append_sheet(book,X.utils.aoa_to_sheet([['Ringkasan']]),'Rekap');
@@ -36,4 +36,33 @@ test('legacy XLS format is accepted and preserves the agreed classification',asy
   X.utils.book_append_sheet(book,X.utils.aoa_to_sheet([['NIK','Nama','Gol','Jabatan'],['S0001','A','S3.7','Operator']]),'Manpower');
   const source=await readWorkbook(file('legacy.xls',X.write(book,{type:'buffer',bookType:'biff8'})),'manpower');
   const parsed=mapRows(source.rows,source.headerIndex,source.mapping,'manpower');assert.equal(parsed.rows[0].nik,'S0001');assert.equal(parsed.rows[0].grade,'2');
+});
+test('Excel dates use the actual date value even with a custom display format or the 1904 calendar',async()=>{
+  for(const date1904 of [false,true]){
+    const book=X.utils.book_new();book.Workbook={WBProps:{date1904}};
+    const sheet=X.utils.aoa_to_sheet([['NIK','Nama','Tanggal Masuk Mess Hunian P2'],['F11260001','Tanggal Excel',0],['F05230002','Angka Biasa',46000]]);
+    const epoch=date1904?Date.UTC(1904,0,1):Date.UTC(1899,11,30);
+    sheet.C2={t:'n',v:(Date.UTC(2026,10,3)-epoch)/86400000,z:'dd "masuk" mmmm yyyy'};
+    X.utils.book_append_sheet(book,sheet,'Data Mess');
+    const source=await readWorkbook(file('dates.xlsx',X.write(book,{type:'buffer',bookType:'xlsx'})),'mess');
+    const mapped=mapRows(source.rows,source.headerIndex,source.mapping,'mess',{dateCells:source.dateCells});
+    assert.equal(mapped.rows[0].messEntryDate,'2026-11-03',String(date1904));
+    const dataset=reconcile(mapped.rows,[],{newHireSince:'2026-10'});
+    assert.equal(dataset.residents[0].employmentStatus,'active');
+    assert.equal(dataset.residents[1].employmentStatus,'review');
+  }
+});
+test('formatted Excel dates are aligned with imported rows when the table starts below and right of A1',async()=>{
+  const book=X.utils.book_new();
+  const sheet={
+    '!ref':'C5:E6',
+    C5:{t:'s',v:'NIK'},D5:{t:'s',v:'Nama'},E5:{t:'s',v:'Tanggal Masuk Mess Hunian P2'},
+    C6:{t:'s',v:'F11260001'},D6:{t:'s',v:'Contoh'},
+    E6:{t:'n',v:(Date.UTC(2026,10,3)-Date.UTC(1899,11,30))/86400000,z:'dd "masuk" mmmm yyyy'}
+  };
+  X.utils.book_append_sheet(book,sheet,'Data Mess');
+  const source=await readWorkbook(file('offset.xlsx',X.write(book,{type:'buffer',bookType:'xlsx'})),'mess');
+  const mapped=mapRows(source.rows,source.headerIndex,source.mapping,'mess',{dateCells:source.dateCells});
+  assert.equal(mapped.rows[0].messEntryDate,'2026-11-03');
+  assert.equal(reconcile(mapped.rows,[],{newHireSince:'2026-10'}).residents[0].employmentStatus,'active');
 });

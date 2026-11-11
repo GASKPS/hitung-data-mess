@@ -95,15 +95,15 @@ test('real XLSX files are matched and automatically classified, including MT, mi
   assert.equal($('#process-import').disabled,false);assert.equal($('#mapping-manpower [data-mapping-field="position"]').value,'6');
   $('#process-import').click();await until(()=>$('#total-value').textContent==='9orang');
   assert.equal(document.querySelectorAll('.residents tbody tr').length,9);assert.equal(document.querySelectorAll('#residents-table img').length,0);
-  assert.equal(document.querySelector('[data-count-grade="1"] b').textContent,'1');assert.equal(document.querySelector('[data-count-grade="2"] b').textContent,'2');assert.equal(document.querySelector('[data-count-grade="3"] b').textContent,'1');assert.equal(document.querySelector('[data-count-grade="MT"] b').textContent,'1');
-  assert.match($('#data-notice').textContent,/4 penghuni belum mendapat golongan/);assert.match($('#data-notice').textContent,/1 NIK berulang/);
+  assert.equal(document.querySelector('[data-count-grade="1"] b').textContent,'2');assert.equal(document.querySelector('[data-count-grade="2"] b').textContent,'2');assert.equal(document.querySelector('[data-count-grade="3"] b').textContent,'1');assert.equal(document.querySelector('[data-count-grade="MT"] b').textContent,'1');
+  assert.match($('#data-notice').textContent,/3 penghuni belum mendapat golongan/);assert.match($('#data-notice').textContent,/1 NIK berulang/);
   assert.match($('#residents-table').textContent,/Jabatan P1 kosong/);assert.match($('#issues-summary').textContent,/1 baris/);assert.equal($('#export-button').disabled,false);
   assert.equal(savedRows.length,1);assert.equal(savedRows[0].counts.total,9);assert.match($('#save-status').textContent,/tersimpan/);
 });
 test('cascading company, department, subdepartment, and grade filters update the same result total',()=>{
-  change('#filter-company','HJF');assert.equal($('#total-value').textContent,'4orang');
+  change('#filter-company','HJF');assert.equal($('#total-value').textContent,'5orang');
   assert.deepEqual([...$('#filter-department').options].slice(1).map(x=>x.value),['Equipment','Production']);
-  change('#filter-department','Production');assert.equal($('#total-value').textContent,'3orang');change('#filter-subdepartment','Furnace');change('#filter-grade','MT');
+  change('#filter-department','Production');assert.equal($('#total-value').textContent,'4orang');change('#filter-subdepartment','Furnace');change('#filter-grade','MT');
   assert.equal($('#total-value').textContent,'1orang');assert.match($('#residents-table').textContent,/Management\s+Trainee, Production/);
   change('#filter-company','KPS');assert.equal($('#filter-department').value,'');assert.equal($('#filter-grade').value,'');assert.equal($('#total-value').textContent,'3orang');
   $('#reset-filters').click();assert.equal($('#total-value').textContent,'9orang');
@@ -111,21 +111,21 @@ test('cascading company, department, subdepartment, and grade filters update the
 test('search, review status, empty result, and reset work on the same page',()=>{
   $('#resident-search').value='crawler';$('#resident-search').dispatchEvent(new window.Event('input',{bubbles:true}));assert.equal($('#total-value').textContent,'1orang');
   $('#resident-search').value='NOT FOUND';$('#resident-search').dispatchEvent(new window.Event('input',{bubbles:true}));assert.match($('#residents-table').textContent,/Tidak ada data yang sesuai/);
-  $('#empty-reset').click();change('#resident-status','review');assert.equal($('#total-value').textContent,'4orang');change('#resident-status','duplicate');assert.equal($('#total-value').textContent,'1orang');
+  $('#empty-reset').click();change('#resident-status','review');assert.equal($('#total-value').textContent,'3orang');change('#resident-status','duplicate');assert.equal($('#total-value').textContent,'1orang');
   $('#reset-filters').click();assert.equal($('#total-value').textContent,'9orang');
 });
 test('recap conserves totals, includes the MT column, and follows company filtering',()=>{
   change('#filter-company','HJF');$('#recap-section').open=true;
-  assert.equal($('#report-table .report-total').lastElementChild.textContent,'4');
+  assert.equal($('#report-table .report-total').lastElementChild.textContent,'5');
   assert.ok([...document.querySelectorAll('#report-table th')].some(x=>x.textContent==='MT'));
-  change('#report-group','department');assert.equal($('#report-table .report-total').lastElementChild.textContent,'4');assert.match($('#report-table').textContent,/Production/);
+  change('#report-group','department');assert.equal($('#report-table .report-total').lastElementChild.textContent,'5');assert.match($('#report-table').textContent,/Production/);
 });
 test('export contains current filtered records, original code, classified grade, and review details',async()=>{
   let blob;const create=URL.createObjectURL,revoke=URL.revokeObjectURL,click=window.HTMLAnchorElement.prototype.click;
   URL.createObjectURL=b=>{blob=b;return 'blob:test';};URL.revokeObjectURL=()=>{};window.HTMLAnchorElement.prototype.click=function(){};
   try{
     $('#export-button').click();await until(()=>blob!==undefined);const book=X.read(await blob.arrayBuffer(),{type:'array'}),rows=X.utils.sheet_to_json(book.Sheets.Penghuni,{header:1});
-    assert.equal(rows.length,5);assert.ok(rows.slice(1).every(r=>r[2]==='HJF'));
+    assert.equal(rows.length,6);assert.ok(rows.slice(1).every(r=>r[2]==='HJF'));
     assert.equal(rows.find(r=>r[0]==='0002')[8],'MT');assert.equal(rows.find(r=>r[0]==='0001')[8],'2');assert.equal(rows.find(r=>r[0]==='0003')[8],'1');
     assert.equal(rows.find(r=>r[0]==='0002')[6],'P1.5');assert.ok(book.SheetNames.includes('Perlu diperiksa'));assert.ok(book.SheetNames.includes('Baris ditolak'));
   }finally{URL.createObjectURL=create;URL.revokeObjectURL=revoke;window.HTMLAnchorElement.prototype.click=click;}
@@ -191,8 +191,8 @@ test('New hire cutoff, active precedence, warnings, and the filtered export surv
     row('F05230005','Aktif Belum Onsite','Belum Onsite'),
     row('F01260004','Aktif Tanggal Kosong',''),
     row('F10260001','Batas Oktober','Belum Onsite'),
-    row('T112600000002','Rekrutan November','06 November 2026'),
-    row('T112600000002','Rekrutan November','06 November 2026','02'),
+    row('T112600000002','Rekrutan November','Belum Onsite'),
+    row('T112600000002','Rekrutan November','Belum Onsite','02'),
     row('F12250003','NIK Lama','Belum Onsite'),
     row('F13260006','Bulan Tidak Valid',''),
     row('','Rekrutan Tanpa NIK','Belum Onsite'),
@@ -240,6 +240,51 @@ test('New hire cutoff, active precedence, warnings, and the filtered export surv
   change('#resident-status','new-hire');assert.equal($('#total-value').textContent,'2orang');
   assert.match($('#residents-table').textContent,/Rekrutan Tanpa NIK/);
   assert.doesNotMatch($('#residents-table').textContent,/NEW-HIRE-ROW:/);
+});
+test('the cutoff is checked before mess dates and duplicate manpower uses only its top row',async()=>{
+  const row=(nik,name,date)=>[nik,name,'L','Dispatch','P1.4','Operator','PT. HJF','Camp','A','1',date];
+  const excelDate={t:'n',v:(Date.UTC(2026,10,3)-Date.UTC(1899,11,30))/86400000,z:'dd "masuk" mmmm yyyy'};
+  await upload('mess',sampleFile('active-date-mess.xlsx',[
+    ['NIK','Nama','Gender','Department','Gol','Jabatan','Perusahaan','Lokasi Mess','Block','No Kamar','Tanggal Masuk Mess Hunian P2'],
+    row('F01260001','Manpower Pertama','Belum Onsite'),
+    row('F05230002','Periksa Tanggal Excel',excelDate),
+    row('S11260003','Aktif Dari Tanggal Teks','Tuesday, 03 November 2026'),
+    row('T112600000004','New Hire Tanpa Tanggal','Belum Onsite'),
+    row('F09260005','Tanggal Tidak Sah','31/02/2026'),
+    row('F10260006','Aktif Batas Oktober',{...excelDate})
+  ]));
+  await upload('manpower',sampleFile('active-date-master.xlsx',[
+    ['NIK','Perusahaan','Department','Subdept','Gol','Jabatan'],
+    ['F01260001','KPS','Quality','Lab','S3.7','Translator'],
+    ['F01260001','OST','Production','Furnace','P1.5','Management Trainee, Production']
+  ]));
+  change('#new-hire-since','2026-10');$('#process-import').click();
+  await until(()=>$('#total-value').textContent==='6orang'&&!$('#export-button').disabled);
+  assert.match($('#data-source').textContent,/3 karyawan aktif · 1 New hire/);
+  assert.doesNotMatch($('#residents-table').textContent,/Satu NIK memiliki referensi manpower/);
+  change('#resident-status','review');assert.equal($('#total-value').textContent,'2orang');
+  assert.match($('#residents-table').textContent,/Periksa Tanggal Excel/);
+  assert.match($('#residents-table').textContent,/Mei 2023 sebelum batas Oktober 2026/);
+  change('#resident-status','active');assert.equal($('#total-value').textContent,'3orang');
+  assert.equal($('#report-table .report-total').lastElementChild.textContent,'3');
+  assert.match($('#residents-table').textContent,/KPS/);assert.match($('#residents-table').textContent,/Quality/);
+  assert.doesNotMatch($('#residents-table').textContent,/OST|Tanggal Tidak Sah|New Hire Tanpa Tanggal|Periksa Tanggal Excel/);
+  assert.equal(document.querySelector('[data-count-grade="1"] b').textContent,'2');
+  assert.equal(document.querySelector('[data-count-grade="2"] b').textContent,'1');
+  assert.equal($('#data-notice').hidden,true);
+  $('#refresh-data').click();await until(()=>!$('#file-mess').disabled&&$('#new-hire-since').value==='2026-10');
+  change('#resident-status','active');assert.equal($('#total-value').textContent,'3orang');
+  let blob;const create=URL.createObjectURL,revoke=URL.revokeObjectURL,click=window.HTMLAnchorElement.prototype.click;
+  URL.createObjectURL=b=>{blob=b;return 'blob:active-date';};URL.revokeObjectURL=()=>{};window.HTMLAnchorElement.prototype.click=function(){};
+  try{
+    $('#export-button').click();await until(()=>blob!==undefined);
+    const book=X.read(await blob.arrayBuffer(),{type:'array'}),rows=X.utils.sheet_to_json(book.Sheets.Penghuni,{header:1,defval:''});
+    assert.equal(rows.length,4);assert.ok(rows.slice(1).every(r=>r[14]==='Karyawan aktif'));
+    assert.equal(rows.find(r=>r[0]==='F01260001')[2],'KPS');
+    assert.equal(rows.find(r=>r[0]==='F05230002'),undefined);
+    assert.equal(rows.find(r=>r[0]==='F10260006')[2],'HJF');
+    assert.equal(rows.find(r=>r[0]==='F10260006')[8],'1');
+  }finally{URL.createObjectURL=create;URL.revokeObjectURL=revoke;window.HTMLAnchorElement.prototype.click=click;}
 });
 test('refresh loads a newer import from another user and blocked accounts lose data access',async()=>{
   savedRows[0]={...savedRows[0],mess:[{nik:'REFRESH001',name:'Dari pengguna lain'}],user_id:'other-user',created_at:'2026-10-22T12:00:00.000Z'};

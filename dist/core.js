@@ -63,6 +63,35 @@ export function monthLabel(value) {
   const month = normalizeHireMonth(value);
   return month ? monthFormatter.format(new Date(`${month}-01T00:00:00Z`)) : '';
 }
+const dateMonths = [
+  ['jan','january','januari'],['feb','february','februari','pebruari'],['mar','march','maret'],
+  ['apr','april'],['may','mei'],['jun','june','juni'],['jul','july','juli'],
+  ['aug','august','agu','ags','agustus'],['sep','sept','september'],
+  ['oct','october','okt','oktober'],['nov','november'],['dec','december','des','desember']
+];
+function calendarDate(year,month,day) {
+  const y=Number(year),m=Number(month),d=Number(day);
+  if(y<1900||y>9999||m<1||m>12||d<1||d>31)return '';
+  const date=new Date(Date.UTC(y,m-1,d));
+  return date.getUTCFullYear()===y&&date.getUTCMonth()===m-1&&date.getUTCDate()===d
+    ? `${y}-${String(m).padStart(2,'0')}-${String(d).padStart(2,'0')}` : '';
+}
+export function parseMessEntryDate(value) {
+  if(value instanceof Date)return Number.isFinite(value.getTime())?calendarDate(value.getUTCFullYear(),value.getUTCMonth()+1,value.getUTCDate()):'';
+  if(typeof value!=='string')return '';
+  let label=text(value).replace(/[\u200B-\u200D\uFEFF]/g,'').replace(/\s+/g,' ');
+  label=label.replace(/^(?:monday|mon|tuesday|tue|wednesday|wed|thursday|thu|friday|fri|saturday|sat|sunday|sun|senin|selasa|rabu|kamis|jumat|sabtu|minggu)(?:\s*,\s*|\s+)/i,'');
+  label=label.replace(/(?:T|\s)(?:[01]\d|2[0-3]):[0-5]\d(?::[0-5]\d(?:\.\d+)?)?(?:Z|[+-](?:[01]\d|2[0-3]):[0-5]\d)?$/i,'');
+  let parts=label.match(/^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})$/);
+  if(parts)return calendarDate(parts[1],parts[2],parts[3]);
+  parts=label.match(/^(\d{1,2})[-/.](\d{1,2})[-/.](\d{4}|\d{2})$/);
+  if(parts)return calendarDate(parts[3].length===2?'20'+parts[3]:parts[3],parts[2],parts[1]);
+  const dayFirst=label.match(/^(\d{1,2})[\s-]*([a-z]+)\.?[\s-]*(\d{4}|\d{2})$/i);
+  const monthFirst=label.match(/^([a-z]+)\.?[\s-]+(\d{1,2}),?\s+(\d{4}|\d{2})$/i);
+  if(!dayFirst&&!monthFirst)return '';
+  const [day,month,year]=dayFirst?[dayFirst[1],dayFirst[2],dayFirst[3]]:[monthFirst[2],monthFirst[1],monthFirst[3]];
+  return calendarDate(year.length===2?'20'+year:year,dateMonths.findIndex(names=>names.includes(month.toLowerCase()))+1,day);
+}
 export function suggestMapping(headers) {
   const normalized = headers.map(normalizeHeader);
   return Object.fromEntries(Object.entries(ALIASES).map(([field, aliases]) => [field, normalized.findIndex(h => aliases.includes(h))]));
@@ -84,6 +113,7 @@ export function mapRows(rows, headerIndex, mapping, type, options = {}) {
     if (!values?.some(v => text(v))) continue;
     const item = { row: i + 1 };
     for (const [field, index] of Object.entries(mapping)) item[field] = index >= 0 ? text(values[index]) : '';
+    if(type==='mess')item.messEntryDate=options.dateCells?.[`${i}:${mapping.messEntry}`]||parseMessEntryDate(values[mapping.messEntry]);
     item.nik = normalizeNik(item.nik);
     // Repeated print headers are not employee records.
     if (ALIASES.nik.includes(normalizeHeader(item.nik))) continue;
@@ -107,9 +137,6 @@ export function mapRows(rows, headerIndex, mapping, type, options = {}) {
     result.push(item);
   }
   return { rows: result, invalid };
-}
-function classificationSignature(row) {
-  return JSON.stringify([companyLabel(row.company), row.department, row.subdepartment, row.gradeRaw || row.grade, row.grade].map(v => text(v).replace(/\s+/g,' ').toUpperCase()));
 }
 export function reconcile(mess, manpower, options = {}) {
   const master = new Map(), residence = new Map(), duplicateMess = [], duplicateManpower = [];
@@ -142,13 +169,16 @@ export function reconcile(mess, manpower, options = {}) {
     const home = rooms[0];
     const nik = normalizeNik(home.nik);
     const candidates = master.get(nik) || [];
-    const variants = new Set(candidates.map(classificationSignature));
+    const entry=rooms.map(row=>({text:row.messEntry,date:parseMessEntryDate(row.messEntryDate)||parseMessEntryDate(row.messEntry)})).find(value=>value.date)||{text:home.messEntry,date:''};
     const hireMonth = hireMonthFromNik(nik);
     const eligibleNewHire = !nik || (newHireSince && hireMonth && hireMonth >= newHireSince);
-    const employmentStatus = candidates.length ? 'active' : eligibleNewHire ? 'new-hire' : 'review';
-    const status = !nik ? 'no-nik' : !candidates.length ? 'unmatched' : variants.size > 1 ? 'ambiguous' : 'matched';
-    const fromMess = employmentStatus === 'new-hire';
-    const found = status === 'matched' ? candidates[0] : fromMess ? {...home,gradeRaw:home.grade,...classifyGrade(home.grade,home.position)} : {};
+    const blockedByPeriod = nik && newHireSince && (!hireMonth || hireMonth < newHireSince);
+    const employmentStatus = candidates.length || (nik&&entry.date&&!blockedByPeriod) ? 'active' : eligibleNewHire ? 'new-hire' : 'review';
+    const status = !nik ? 'no-nik' : !candidates.length ? 'unmatched' : 'matched';
+    const fromMess = !candidates.length && employmentStatus !== 'review';
+    const rawGrade=home.gradeRaw||home.grade;
+    // Import order is Excel row order; all master fields come from its first row.
+    const found = candidates[0] || (fromMess ? {...home,gradeRaw:rawGrade,...classifyGrade(rawGrade,home.position)} : {});
     const required = fromMess ? ['company','department','grade'] : ['company','department','subdepartment','grade'];
     const incomplete = (status === 'matched' || fromMess) && required.some(k => !text(found[k]));
     const reviewReason = employmentStatus === 'review' && newHireSince
@@ -162,12 +192,13 @@ export function reconcile(mess, manpower, options = {}) {
       subdepartment: canonical('subdepartment',found.subdepartment), grade: found.grade || '', gradeRaw: found.gradeRaw || found.grade || '',
       position: text(found.position), positionGroup: found.positionGroup || '', classificationReason: found.classificationReason || '',
       location: canonical('location',home.location), room: home.room || '', block: home.block || '', floor: home.floor || '',
-      gender: text(home.gender || found.gender), messEntry: text(home.messEntry), hireMonth, employmentStatus, reviewReason,
+      gender: text(home.gender || found.gender), messEntry: text(entry.text), messEntryDate:entry.date, hireMonth, employmentStatus, reviewReason,
+      profileSource:candidates.length?'manpower':fromMess?'mess':'', sourceManpowerRow:candidates[0]?.row||null,
       status, messOccurrences: rooms.length, manpowerOccurrences: candidates.length,
       locations: [...new Set(rooms.map(r => canonical('location',r.location)).filter(Boolean))],
       rooms: [...new Set(rooms.map(r => [r.block,r.room].filter(Boolean).join(' / ')).filter(Boolean))],
       sourceRow: home.row || null,
-      incomplete, needsReview: employmentStatus === 'review' || status === 'ambiguous' || incomplete
+      incomplete, needsReview: employmentStatus === 'review' || incomplete
     };
   });
   return {
@@ -182,7 +213,7 @@ export function filterResidents(rows, filters = {}, query = '', status = '') {
   const q = text(query).toLocaleLowerCase('id');
   return rows.filter(r => Object.entries(filters).every(([key,val]) => !val || (key === 'location' ? r.locations?.includes(val) || (r.location || UNKNOWN) === val : (r[key] || UNKNOWN) === val))
     && (!q || `${r.nik} ${r.name} ${r.company} ${r.location} ${r.position} ${r.department} ${r.subdepartment}`.toLocaleLowerCase('id').includes(q))
-    && (!status || (status === 'active' || status === 'new-hire' ? r.employmentStatus === status : status === 'review' ? r.needsReview : status === 'unclassified' ? !r.grade : status === 'duplicate' ? r.messOccurrences > 1 : status === 'incomplete' ? r.incomplete : r.status === status)));
+    && (!status || (status === 'active' || status === 'new-hire' ? r.employmentStatus === status : status === 'review' ? r.needsReview : status === 'ambiguous' ? r.manpowerOccurrences>1 : status === 'unclassified' ? !r.grade : status === 'duplicate' ? r.messOccurrences > 1 : status === 'incomplete' ? r.incomplete : r.status === status)));
 }
 export function filterOptions(rows, filters, field) {
   const order = ['company','department','subdepartment','grade','location'];

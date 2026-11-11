@@ -5,10 +5,10 @@ Aplikasi sederhana untuk melihat jumlah dan daftar penghuni mess. Semua akun yan
 ## Penggunaan
 
 1. Masuk dengan email dan kata sandi akun yang sudah dibuat. Jika sesi masih aktif, aplikasi langsung membuka data terakhir.
-2. Pilih **Data mess** dan **Data manpower** (`.xlsx`, `.xls`, atau `.csv`).
+2. Pilih **Bulan awal New hire**, lalu pilih **Data mess** dan **Data manpower** (`.xlsx`, `.xls`, atau `.csv`). Batas awalnya Oktober 2026 dan dapat diubah setiap impor.
 3. Jika perlu, buka **Periksa sheet dan kolom**. Sistem mengenali judul kolom dan baris judul secara otomatis.
 4. Klik **Tampilkan data**. Sistem mencocokkan NIK, mengklasifikasikan golongan, dan menyimpan kedua sumber secara otomatis. Data baru mengganti data bersama untuk seluruh pengguna. Jika penyimpanan atau penghapusan gagal, seluruh perubahan dibatalkan dan data lama tetap ada.
-5. Pilih filter atau cari nama/NIK/jabatan. Total, jumlah per golongan, daftar, dan rekap semuanya mengikuti filter serta pencarian yang sama.
+5. Pilih filter atau cari nama/NIK/jabatan. Menu di sebelah pencarian menyediakan **Semua data**, **Karyawan aktif**, **New hire**, dan pilihan pemeriksaan. Total, jumlah per golongan, daftar, rekap, dan ekspor mengikuti filter serta pencarian yang sama.
 6. Buka **Lihat rekap perusahaan dan departemen** untuk melihat rekap silang golongan per perusahaan, departemen, atau subdepartemen.
 7. Pilih **Unduh Excel** untuk mengekspor hasil yang sedang ditampilkan. Klik **Muat data terbaru** untuk mengambil pembaruan dari pengguna lain. Waktu pembaruan terakhir ditampilkan di atas filter. Menu **Penyimpanan** menampilkan impor terbaru.
 
@@ -37,20 +37,25 @@ Kode asli, kelompok jabatan, nama jabatan, dan hasil klasifikasi disertakan dala
 
 ## Format sumber dan hitungan
 
-Data mess memerlukan **NIK**. Nama, lokasi mess, blok, serta kamar dapat dipetakan jika tersedia.
+Data mess memerlukan kolom **NIK**, meskipun isinya boleh kosong untuk New hire. Judul berspasi seperti **N I K**, **N A M A**, dan **J A B A T A N** dikenali. Kolom **Tanggal Masuk Mess Hunian** atau **Tanggal Masuk Mess Hunian P2** dibaca sebagai keterangan dan ikut diekspor.
 
 Manpower memerlukan **NIK, departemen, subdepartemen, kode golongan**, dan informasi perusahaan. Perusahaan dapat dipilih dari kolom atau diisi satu nama untuk seluruh file. Kolom **Jabatan** diperlukan untuk membedakan P1 biasa dan MT. Kolom seperti `GOL`, `Subdept`, `COST CENTER`, `JABATAN`, serta judul dengan spasi/baris baru dikenali. Bila Cost Center otomatis terpilih, pastikan nilainya memang perusahaan.
 
 Satu sheet dipilih per sumber. Sheet bernama Data Mess dan Data Manpower otomatis dipilih sesuai jenis unggahan. Untuk beberapa perusahaan dalam satu impor, gabungkan referensi ke satu sheet dengan kolom perusahaan yang benar.
 
-- Satu NIK unik dalam data mess dihitung satu penghuni. Baris manpower tanpa penghuni mess tidak menambah total.
+- Satu NIK unik dalam data mess dihitung satu penghuni. Setiap baris New hire tanpa NIK yang lengkap dihitung satu kali. Baris manpower tanpa penghuni mess tidak menambah total.
+- NIK yang ditemukan di manpower masuk **Karyawan aktif**, termasuk saat tanggal masuk mess kosong atau bertuliskan **Belum Onsite**.
+- Untuk NIK yang belum ditemukan di manpower, **batas bulan diperiksa lebih dulu**. NIK yang lebih lama dari batas atau bulan/tahunnya tidak dapat dibaca masuk **Perlu diperiksa**, meskipun tanggal masuk mess sudah valid.
+- NIK yang belum ditemukan di manpower dan memenuhi batas bulan masuk **Karyawan aktif** jika **Tanggal Masuk Mess Hunian P2** berisi tanggal valid. Untuk kasus ini, perusahaan, departemen, golongan, dan jabatan diambil dari Excel mess. Tanggal Excel asli serta teks tanggal Indonesia/Inggris dikenali; tanggal tidak sah dan teks status tidak dianggap sebagai tanggal.
+- Jika NIK belum ada di manpower dan tanggal masuk mess belum valid, statusnya **New hire** jika bulan masuknya sama dengan atau setelah **Bulan awal New hire**. Setelah huruf awal NIK, dua digit pertama adalah bulan dan dua berikutnya adalah tahun, misalnya `S1126…` berarti November 2026. NIK lebih lama atau yang pola bulannya tidak dapat dibaca ditandai **Perlu diperiksa**.
+- New hire tanpa NIK dapat masuk jika nama, gender, departemen, golongan, jabatan, perusahaan, lokasi mess, blok, dan kamar terisi. Data New hire diambil dari Excel mess. Subdepartemen boleh kosong.
 - NIK dibaca sebagai teks. Awalan huruf dan nol dipertahankan; spasi dan karakter zero-width dibuang, serta huruf diseragamkan menjadi kapital.
 - Gunakan format Teks di Excel untuk NIK. Digit atau nol yang sudah hilang di sumber tidak dapat direkonstruksi. NIK yang ditulis dalam notasi ilmiah ditolak untuk diperbaiki.
 - Duplikasi mess tetap dihitung satu orang; seluruh lokasi dan kamar yang tercatat disertakan.
-- Referensi manpower ganda dengan klasifikasi yang konsisten dapat dicocokkan. Perbedaan perusahaan, departemen, subdepartemen, kode asli, atau hasil klasifikasi membuat referensi ambigu. Perbedaan MT dan P1 biasa tidak dipilih secara sembarang.
-- NIK tidak ditemukan atau referensi ambigu tetap masuk total dan kelompok **Belum teridentifikasi**. Memilih perusahaan tertentu hanya menampilkan orang yang teridentifikasi pada perusahaan itu.
+- Jika satu NIK muncul beberapa kali di manpower, seluruh acuan memakai **baris pertama/paling atas pada sheet yang dipilih**. Nilai kosong pada baris pertama tidak diisi dari baris berikutnya. Duplikasi itu sendiri tidak menimbulkan peringatan konflik; data baris pertama yang belum lengkap tetap ditandai untuk diperiksa.
+- NIK yang belum dapat diidentifikasi tetap masuk total dan kelompok **Belum teridentifikasi**. Memilih perusahaan tertentu hanya menampilkan orang yang teridentifikasi pada perusahaan itu.
 - Jumlah golongan 1–5 dan MT mungkin lebih kecil dari total jika ada penghuni yang belum dapat diklasifikasikan; jumlah tersebut ditampilkan dalam pemberitahuan pemeriksaan.
-- Baris NIK kosong atau notasi ilmiah ditampilkan sebagai baris ditolak dan tidak dihitung sebagai penghuni. Header berulang dilewati.
+- Baris dengan NIK dan nama kosong dilewati sebagai baris tempat tidur. New hire tanpa NIK yang datanya belum lengkap serta NIK dalam notasi ilmiah ditampilkan sebagai baris ditolak. Header berulang dilewati.
 - Data tersimpan otomatis setelah **Tampilkan data** berhasil. Memilih file saja belum mengganti data tersimpan. Aplikasi mengingatkan sebelum menutup halaman jika file belum diproses.
 - Kegagalan membaca atau menyimpan impor baru tidak menghapus data sebelumnya. Data kosong tidak boleh mengganti impor yang sudah tersimpan.
 - Maksimal 20 MB dan 50.000 baris valid per sumber.
@@ -91,6 +96,8 @@ Penggunaan melalui web:
 
 Kedua sumber disimpan bersama sebagai satu snapshot JSONB melalui `replace_mess_data`. Fungsi database memeriksa keanggotaan, mengunci antrean unggahan, menyimpan impor baru, lalu menghapus impor sebelumnya. Semuanya berada dalam satu transaksi. Identitas pengunggah diambil dari sesi Supabase, sehingga tidak dapat dipalsukan melalui payload frontend. File Excel asli tidak diunggah; isi baris hasil pembacaan yang disimpan. Pencocokan dan statistik dihitung di browser.
 
+Fitur New hire tidak memerlukan perubahan SQL. Batas bulan disimpan bersama impor. Agar cocok dengan penyimpanan yang sudah ada, baris tanpa NIK memakai kunci internal saat dikirim ke Supabase. Kunci itu dilepas saat data dibuka, sehingga NIK tetap kosong saat dicocokkan, ditampilkan, atau diekspor.
+
 Penggantian data bersama dari beberapa pengguna diurutkan oleh lock database; setelah berhasil, hanya tersisa satu impor. Jika salah satu langkah gagal, insert baru dan penghapusan sama-sama dibatalkan. Database lama sebelum migrasi masih menggunakan insert dan penghapusan terpisah, dengan tombol coba lagi bila penghapusan gagal.
 
 RLS membatasi pembacaan data bersama kepada akun yang tercatat aktif di `mess_members`. Pengguna anonim dan akun tanpa akses tidak dapat membaca atau mengganti data. Penulisan langsung dari frontend ke tabel tidak diizinkan; penggantian wajib melalui fungsi transaksi. Kolom `user_id` hanya mencatat pengunggah. Menghapus akun pengunggah tidak menghapus data bersama. Pendaftaran publik tidak disediakan oleh antarmuka.
@@ -126,6 +133,6 @@ Source berisi URL proyek dan publishable key Supabase, tanpa kata sandi, secret 
 | `supabase/schema.sql` | Tabel, indeks, hak akses, dan RLS |
 | `tests/` | Pengujian klasifikasi, Excel, DOM, klien Supabase, dan kebijakan database |
 
-Pengujian mencakup semua kelompok jabatan yang disepakati, contoh S3.7/M1.5/S1.1/P1.4/S4.9, pengecualian MT, jabatan kosong, kode tidak dikenal, konflik referensi, hitungan duplikat, filter bertingkat, rekap, ekspor, login, pemulihan data bersama lintas akun, penggantian impor, rollback insert saat penghapusan gagal, larangan penulisan langsung, penolakan akun tanpa akses, dan kompatibilitas database lama. Pengujian database memakai PostgreSQL melalui PGlite; pengujian klien Supabase memakai SDK asli dengan respons API tiruan. Koneksi Supabase langsung memerlukan proyek dan akun nyata.
+Pengujian mencakup semua kelompok jabatan yang disepakati, contoh S3.7/M1.5/S1.1/P1.4/S4.9, pengecualian MT, jabatan kosong, kode tidak dikenal, pemilihan baris manpower pertama, tanggal masuk mess, hitungan duplikat, filter bertingkat, rekap, ekspor, login, pemulihan data bersama lintas akun, penggantian impor, rollback insert saat penghapusan gagal, larangan penulisan langsung, penolakan akun tanpa akses, dan kompatibilitas database lama. Pengujian database memakai PostgreSQL melalui PGlite; pengujian klien Supabase memakai SDK asli dengan respons API tiruan. Koneksi Supabase langsung memerlukan proyek dan akun nyata.
 
 Lisensi pustaka dan font tercantum dalam `THIRD_PARTY_NOTICES.md`.

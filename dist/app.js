@@ -45,10 +45,9 @@ function renderCounts(rows){
 }
 function noteFor(row){
   if(row.reviewReason)return row.reviewReason;
-  if(row.status==='unmatched'&&row.employmentStatus!=='new-hire')return 'NIK tidak ditemukan di manpower.';
-  if(row.status==='ambiguous')return 'Satu NIK memiliki referensi manpower yang berbeda.';
+  if(row.status==='unmatched'&&row.employmentStatus==='review')return 'NIK tidak ditemukan di manpower.';
   if(row.classificationReason)return row.classificationReason;
-  if(row.incomplete)return row.employmentStatus==='new-hire'?'Perusahaan, departemen, atau golongan belum lengkap.':'Perusahaan, departemen, atau subdepartemen belum lengkap.';
+  if(row.incomplete)return row.profileSource==='mess'?'Perusahaan, departemen, atau golongan belum lengkap.':'Perusahaan, departemen, atau subdepartemen belum lengkap.';
   return '';
 }
 function renderNotice(rows){
@@ -153,7 +152,7 @@ async function processImport(){
   try{
     await new Promise(resolve=>setTimeout(resolve,25));
     if(epoch!==authEpoch)return;
-    const mapped={};for(const type of ['mess','manpower']){const s=state.files[type];mapped[type]=mapRows(s.rows,s.headerIndex,s.mapping,type,{company:s.company});if(!mapped[type].rows.length)throw new Error(`Tidak ada NIK valid${type==='mess'?' atau data New hire yang lengkap':''} pada data ${type}. Periksa sheet, baris judul, dan kolom yang dipilih.`);if(mapped[type].rows.length>50000)throw new Error('Maksimal 50.000 baris valid per sumber.');}
+    const mapped={};for(const type of ['mess','manpower']){const s=state.files[type];mapped[type]=mapRows(s.rows,s.headerIndex,s.mapping,type,{company:s.company,dateCells:s.dateCells});if(!mapped[type].rows.length)throw new Error(`Tidak ada NIK valid${type==='mess'?' atau data New hire yang lengkap':''} pada data ${type}. Periksa sheet, baris judul, dan kolom yang dipilih.`);if(mapped[type].rows.length>50000)throw new Error('Maksimal 50.000 baris valid per sumber.');}
     const sources=Object.fromEntries(['mess','manpower'].map(type=>{const s=state.files[type];return [type,{name:s.name,sheet:s.sheet,headerRow:s.headerIndex+1,rows:mapped[type].rows.length}];}));
     const dataset=reconcile(mapped.mess.rows,mapped.manpower.rows,{sources,newHireSince,invalid:[...mapped.mess.invalid,...mapped.manpower.invalid]});
     const saved=await cloud.saveSnapshot(dataset,`Data mess — ${date(dataset.importedAt)} WIT`);

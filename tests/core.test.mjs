@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {normalizeNik,normalizeHireMonth,hireMonthFromNik,companyLabel,gradeLabel,classifyGrade,GRADE_RULES,suggestMapping,detectHeader,mapRows,reconcile,filterResidents,filterOptions,buildReport,summary,makeEmpty,UNKNOWN,escapeHtml,safeSpreadsheetCell} from '../dist/core.js';
+import {normalizeNik,normalizeHireMonth,hireMonthFromNik,parseMessEntryDate,companyLabel,gradeLabel,classifyGrade,GRADE_RULES,suggestMapping,detectHeader,mapRows,reconcile,filterResidents,filterOptions,buildReport,summary,makeEmpty,UNKNOWN,escapeHtml,safeSpreadsheetCell} from '../dist/core.js';
 
 test('NIK preserves letters, leading zeros, and punctuation while normalizing spacing',()=>{
   assert.equal(normalizeNik(" 's 00123\u200B "),'S00123');
@@ -15,6 +15,48 @@ test('hire month reads MMYY after the NIK prefix and rejects invalid months',()=
   for(const nik of ['F00260001','T13260001','11260001','F1126','F1126TEXT'])assert.equal(hireMonthFromNik(nik),'');
   assert.equal(normalizeHireMonth('2026-10'),'2026-10');
   assert.equal(normalizeHireMonth('2026-13'),'');
+});
+test('mess entry dates accept real Indonesian and English dates without guessing status text or invalid dates',()=>{
+  for(const value of ['2026-11-03','03/11/2026','3-11-26','Tuesday, 03 November 2026','Tuesday,03 November2026','Selasa, 3 November 2026','03Nov2026','Nov 3, 2026','2026-11-03T10:00:00+09:00',new Date(Date.UTC(2026,10,3))]){
+    assert.equal(parseMessEntryDate(value),'2026-11-03',String(value));
+  }
+  assert.equal(parseMessEntryDate('29 Februari 2024'),'2024-02-29');
+  for(const value of ['29/02/2026','31 November 2026','2026-13-01','00/11/2026','Belum Onsite','',null,undefined,46000,'46000','03/11/2026abc',new Date('invalid')]){
+    assert.equal(parseMessEntryDate(value),'',String(value));
+  }
+});
+test('a NIK with a valid mess date in the allowed period is active, with profile taken from mess',()=>{
+  const home={name:'Contoh',gender:'L',company:'PT. HJF',department:'Dispatch',grade:'P1.4',position:'Operator',location:'Camp',block:'A',room:'1'};
+  const d=reconcile([
+    {...home,nik:'F11260001',messEntry:'Tuesday, 03 November 2026'},
+    {...home,nik:'F09260002',messEntry:'Belum Onsite'},
+    {...home,nik:'F09260003',messEntry:'31 Februari 2026'},
+    {...home,nik:'S11260004',messEntry:'Belum Onsite'},
+    {...home,nik:'',messEntry:'03/11/2026'},
+    {...home,nik:'F11260005',messEntry:''},
+    {...home,nik:'F11260005',room:'2',messEntry:'03/11/2026'}
+  ],[],{newHireSince:'2026-10'});
+  assert.deepEqual(d.residents.map(r=>r.employmentStatus),['active','review','review','new-hire','new-hire','active']);
+  const active=d.residents[0];assert.equal(active.company,'HJF');assert.equal(active.department,'Dispatch');assert.equal(active.grade,'1');
+  assert.equal(active.profileSource,'mess');assert.equal(active.messEntryDate,'2026-11-03');assert.equal(active.needsReview,false);
+  assert.equal(d.residents.at(-1).messOccurrences,2);
+  assert.equal(filterResidents(d.residents,{},'','active').length,2);
+});
+test('unmatched NIKs must pass the selected month before a check-in date can make them active',()=>{
+  const home={name:'Contoh',gender:'L',company:'HJF',department:'Dispatch',grade:'P1.4',position:'Operator',location:'Camp',block:'A',room:'1',messEntry:'03/11/2026'};
+  const homes=['F09260001','F10260002','F11260003','F05230004','UNKNOWN',''].map(nik=>({...home,nik}));
+  const master=[{nik:'F05230004',company:'KPS',department:'Quality',subdepartment:'Lab',grade:'S3.7',position:'Translator'}];
+  const d=reconcile(homes,master,{newHireSince:'2026-10'});
+  assert.deepEqual(d.residents.map(r=>r.employmentStatus),['review','active','active','active','review','new-hire']);
+  assert.match(d.residents[0].reviewReason,/September 2026 sebelum batas Oktober 2026/);
+  assert.equal(d.residents[0].needsReview,true);
+  assert.equal(d.residents[3].company,'KPS');
+  assert.equal(d.residents[4].needsReview,true);
+  assert.equal(filterResidents(d.residents,{},'','review').length,2);
+  const changed=reconcile(homes,master,{newHireSince:'2026-11'});
+  assert.equal(changed.residents[1].employmentStatus,'review');
+  assert.equal(changed.residents[2].employmentStatus,'active');
+  assert.equal(changed.residents[3].employmentStatus,'active');
 });
 test('all position groups use the agreed table, including S3 to grade 2',()=>{
   for(const {grade,groups} of GRADE_RULES)for(const group of groups)assert.equal(classifyGrade(group+'.7','Operator').grade,grade,group);
@@ -64,22 +106,23 @@ const mp=[
   {nik:'X005',company:'HJF',department:'Production',subdepartment:'',grade:'2'},
   {nik:'NOTRESIDENT',company:'HJF',department:'Production',subdepartment:'Furnace',grade:'1'}
 ];
-test('reconciliation counts unique mess NIK and flags conflicting master references',()=>{
+test('reconciliation counts unique mess NIK and takes the first manpower reference',()=>{
   const d=reconcile(mess,mp),s=summary(d.residents);
-  assert.equal(s.total,5);assert.equal(s.matched,3);assert.equal(s.review,3);assert.equal(s.incomplete,1);assert.equal(s.duplicate,1);
+  assert.equal(s.total,5);assert.equal(s.matched,4);assert.equal(s.review,2);assert.equal(s.incomplete,1);assert.equal(s.duplicate,1);
   const a=d.residents.find(r=>r.nik==='S001');assert.equal(a.status,'matched');assert.equal(a.messOccurrences,2);assert.deepEqual(a.locations,['Surya','Meranti']);
-  assert.equal(d.residents.find(r=>r.nik==='X004').status,'ambiguous');assert.equal(d.residents.find(r=>r.nik==='X004').company,'');
+  assert.equal(d.residents.find(r=>r.nik==='X004').status,'matched');assert.equal(d.residents.find(r=>r.nik==='X004').company,'HJF');
+  assert.equal(d.residents.find(r=>r.nik==='X004').needsReview,false);
   assert.equal(d.residents.find(r=>r.nik==='X003').status,'unmatched');assert.equal(d.duplicateMess.length,1);assert.equal(d.duplicateManpower.length,2);
 });
 test('cascading filters and missing classification/location are selectable',()=>{
   const rows=reconcile(mess,mp).residents;
   assert.equal(filterResidents(rows,{company:'HJF',department:'Production',grade:'1'}).length,1);
   assert.equal(filterResidents(rows,{location:'Meranti'}).length,2);
-  assert.equal(filterResidents(rows,{company:UNKNOWN}).length,2);
+  assert.equal(filterResidents(rows,{company:UNKNOWN}).length,1);
   assert.equal(filterResidents(rows,{location:UNKNOWN}).length,1);
   assert.deepEqual(filterOptions(rows,{company:'KPS'},'department'),['Equipment']);
   assert.equal(filterResidents(rows,{},'ALPHA').length,1);
-  assert.equal(filterResidents(rows,{},'','review').length,3);
+  assert.equal(filterResidents(rows,{},'','review').length,2);
   assert.equal(filterResidents(rows,{},'','duplicate').length,1);
 });
 test('cross-tab report conserves occupant count and grade totals',()=>{
@@ -92,15 +135,15 @@ test('cross-tab report conserves occupant count and grade totals',()=>{
     for(let i=1;i<report.headers.length;i++)assert.equal(report.rows.reduce((s,r)=>s+r[i],0),report.totals[i]);
   }
 });
-test('categorical spacing/case are unified and differing original grade codes remain conflicts',()=>{
+test('categorical spacing/case are unified and the first original grade code is used',()=>{
   const d=reconcile([{nik:'1',location:'Surya Camp'},{nik:'2',location:'surya  camp'},{nik:'3'}],[
     {nik:'1',company:'PT. HJF',department:'Production',subdepartment:'Furnace',gradeRaw:'P1.4',position:'Operator'},
     {nik:'2',company:'HJF',department:'production',subdepartment:'Furnace',gradeRaw:'P1.5',position:'Operator'},
     {nik:'3',company:'HJF',department:'production',subdepartment:'Furnace',gradeRaw:'P1.4',position:'Operator'},
     {nik:'3',company:'HJF',department:'production',subdepartment:'Furnace',gradeRaw:'P1.5',position:'Operator'}]);
-  assert.equal(filterResidents(d.residents,{company:'HJF',department:'Production'}).length,2);
+  assert.equal(filterResidents(d.residents,{company:'HJF',department:'Production'}).length,3);
   assert.equal(filterResidents(d.residents,{location:'Surya Camp'}).length,2);
-  assert.equal(d.residents[2].status,'ambiguous');
+  assert.equal(d.residents[2].status,'matched');assert.equal(d.residents[2].gradeRaw,'P1.4');
 });
 test('initial dataset is empty and contains no demonstration employees',()=>{
   const d=makeEmpty();assert.equal(d.mode,'empty');assert.equal(d.residents.length,0);assert.equal(d.importedAt,null);assert.equal(summary(d.residents).total,0);
@@ -112,10 +155,21 @@ test('saved manpower is reclassified using original code and position, not a sta
     {nik:'THREE',company:'HJF',department:'Production',subdepartment:'Furnace',gradeRaw:'P1.5',grade:'1'}]);
   assert.deepEqual(d.residents.map(r=>r.grade),['2','MT','']);assert.equal(d.residents[2].needsReview,true);
 });
-test('a duplicated P1 with conflicting trainee status is ambiguous',()=>{
+test('the topmost manpower row wins even for different P1 trainee classifications',()=>{
   const common={nik:'ONE',company:'HJF',department:'Production',subdepartment:'Furnace',gradeRaw:'P1.5'};
   const d=reconcile([{nik:'ONE'}],[{...common,position:'Management Trainee, Production'},{...common,position:'Crawler Crane Operator'}]);
-  assert.equal(d.residents[0].status,'ambiguous');assert.equal(d.residents[0].grade,'');
+  assert.equal(d.residents[0].status,'matched');assert.equal(d.residents[0].grade,'MT');assert.equal(d.residents[0].needsReview,false);
+  const reversed=reconcile([{nik:'ONE'}],[{...common,position:'Crawler Crane Operator'},{...common,position:'Management Trainee, Production'}]);
+  assert.equal(reversed.residents[0].grade,'1');
+});
+test('the first manpower row is not combined with later rows to fill empty profile values',()=>{
+  const d=reconcile([{nik:'F01260001',name:'Contoh',company:'OST',messEntry:'03/11/2026'}],[
+    {nik:'F01260001',row:2,company:'',department:'Department Pertama',subdepartment:'',gradeRaw:'P1.4',position:'Operator'},
+    {nik:'F01260001',row:3,company:'HJF',department:'Department Kedua',subdepartment:'Lab',gradeRaw:'M1.5',position:'Lead'}
+  ]);
+  const r=d.residents[0];assert.equal(r.company,'');assert.equal(r.department,'Department Pertama');
+  assert.equal(r.grade,'1');assert.equal(r.profileSource,'manpower');assert.equal(r.sourceManpowerRow,2);
+  assert.equal(r.employmentStatus,'active');assert.equal(r.incomplete,true);
 });
 test('imported strings are escaped for DOM and spreadsheet formulas',()=>{
   assert.equal(escapeHtml('<img onerror="x">'),'&lt;img onerror=&quot;x&quot;&gt;');

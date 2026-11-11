@@ -1,11 +1,11 @@
-import { detectHeader, suggestMapping, safeSpreadsheetCell } from './core.js';
+import { detectHeader, suggestMapping, safeSpreadsheetCell, parseMessEntryDate } from './core.js';
 let library;
 export async function xlsx() { if(!library)library=await import('./assets/xlsx.mjs');return library; }
 export async function readWorkbook(file,type='') {
   if(!file || !/\.(xlsx|xls|csv)$/i.test(file.name))throw new Error('Pilih file Excel (.xlsx, .xls) atau CSV.');
   if(file.size>20*1024*1024)throw new Error('Ukuran file melebihi 20 MB. Pisahkan file menjadi lebih kecil.');
   const X=await xlsx(); let workbook;
-  try {workbook=X.read(await file.arrayBuffer(),{type:'array',cellText:true,cellDates:false,raw:true,sheetRows:50042});}catch{throw new Error('File tidak bisa dibaca. Pastikan file valid dan tidak dikunci dengan kata sandi.');}
+  try {workbook=X.read(await file.arrayBuffer(),{type:'array',cellText:true,cellNF:true,cellDates:false,raw:true,sheetRows:50042});}catch{throw new Error('File tidak bisa dibaca. Pastikan file valid dan tidak dikunci dengan kata sandi.');}
   if(!workbook.SheetNames.length)throw new Error('Workbook tidak memiliki sheet.');
   const output={name:file.name,size:file.size,workbook,sheet:workbook.SheetNames[0],rows:[],headerIndex:0,mapping:{},company:''};
   const named=workbook.SheetNames.find(s=>(type==='manpower'?/manpower|karyawan|employee|master/i:/mess|penghuni|hunian/i).test(s));
@@ -20,6 +20,17 @@ export function setSheet(source,name,X=library) {
   if(!sheet)throw new Error('Sheet tidak ditemukan.');
   // Formatted cell text retains displayed leading zeros; raw CSV fields stay text.
   source.rows=X.utils.sheet_to_json(sheet,{header:1,raw:false,defval:'',blankrows:true});
+  source.dateCells={};
+  const origin=X.utils.decode_range(sheet['!ref']||'A1').s;
+  for(const address of Object.keys(sheet)){
+    if(address.startsWith('!'))continue;
+    const cell=sheet[address];let date='';
+    if(cell.t==='n'&&X.SSF.is_date(cell.z||'')){
+      const parts=X.SSF.parse_date_code(cell.v,{date1904:Boolean(source.workbook.Workbook?.WBProps?.date1904)});
+      if(parts)date=parseMessEntryDate(`${parts.y}-${String(parts.m).padStart(2,'0')}-${String(parts.d).padStart(2,'0')}`);
+    }else if(cell.t==='d')date=parseMessEntryDate(cell.v);
+    if(date){const {r,c}=X.utils.decode_cell(address);source.dateCells[`${r-origin.r}:${c-origin.c}`]=date;}
+  }
   if(source.rows.length>50040)throw new Error('Maksimal 50.000 baris data per sumber.');
   source.headerIndex=detectHeader(source.rows);
   source.mapping=suggestMapping(source.rows[source.headerIndex] || []);
@@ -51,6 +62,6 @@ export async function downloadTemplate() {
       ['','New Hire Contoh','L','Equipment','P1.4','Operator','KPS','Cendana Residence','B','203','Belum Onsite']
     ]},
     {name:'Data Manpower',rows:[['NIK','Nama','Perusahaan','Department','Subdept','Gol','Jabatan'],['CONTOH001','Karyawan Contoh A','HJF','Production','Furnace','P1.5','Management Trainee, Production'],['CONTOH002','Karyawan Contoh B','KPS','Equipment','Operations','P1.5','Crawler Crane Operator'],['CONTOH003','Karyawan Contoh C','HJF','Production','Furnace','S3.7','Translator']]},
-    {name:'Petunjuk',rows:[['Petunjuk'],['Gunakan sheet Data Mess untuk mess dan Data Manpower untuk manpower. Ganti seluruh baris contoh dengan data Anda.'],['Gunakan format Teks untuk NIK yang sudah ada. Awalan huruf dan nol dipertahankan.'],['NIK yang ada di manpower termasuk Karyawan aktif, terlepas dari isi tanggal masuk mess.'],['Jika NIK belum terbit, isi nama, gender, departemen, golongan, jabatan, perusahaan, lokasi, blok, dan kamar agar masuk New hire.'],['Pilih Bulan awal New hire sebelum memproses impor. NIK yang belum ada di manpower dan lebih lama dari batas akan ditandai untuk diperiksa.'],['Cost Center hanya dipakai sebagai perusahaan jika isinya memang nama perusahaan.'],['Golongan 1: S1, P1. Golongan 2: S2, S3, P2, M1, M2. Golongan 3: S4, P3, P4, M3, M4. Golongan 4: P5, M5, M6, M7. Golongan 5: X1, X2, X3.'],['Khusus P1 dengan jabatan Management Trainee (termasuk tambahan departemen setelah koma) masuk MT. P1 tanpa jabatan perlu diperiksa.'],['Kode asli seperti P1.5 tetap disimpan dan ikut diekspor.']]}
+    {name:'Petunjuk',rows:[['Petunjuk'],['Gunakan sheet Data Mess untuk mess dan Data Manpower untuk manpower. Ganti seluruh baris contoh dengan data Anda.'],['Gunakan format Teks untuk NIK yang sudah ada. Awalan huruf dan nol dipertahankan.'],['NIK yang ada di manpower termasuk Karyawan aktif, terlepas dari isi tanggal masuk mess.'],['NIK yang belum ada di manpower diperiksa batas bulannya lebih dulu. Jika lebih lama dari batas atau bulannya tidak terbaca, tetap Perlu diperiksa meskipun tanggal masuk mess valid. Jika memenuhi batas dan tanggal masuk valid, statusnya Karyawan aktif dengan data dari Data Mess.'],['NIK yang berulang di manpower memakai seluruh data dari baris paling atas.'],['Jika NIK belum terbit, isi nama, gender, departemen, golongan, jabatan, perusahaan, lokasi, blok, dan kamar agar masuk New hire.'],['Pilih Bulan awal New hire sebelum memproses impor. NIK yang belum ada di manpower dan lebih lama dari batas akan ditandai untuk diperiksa.'],['Cost Center hanya dipakai sebagai perusahaan jika isinya memang nama perusahaan.'],['Golongan 1: S1, P1. Golongan 2: S2, S3, P2, M1, M2. Golongan 3: S4, P3, P4, M3, M4. Golongan 4: P5, M5, M6, M7. Golongan 5: X1, X2, X3.'],['Khusus P1 dengan jabatan Management Trainee (termasuk tambahan departemen setelah koma) masuk MT. P1 tanpa jabatan perlu diperiksa.'],['Kode asli seperti P1.5 tetap disimpan dan ikut diekspor.']]}
   ],'Template_Mess_Insight.xlsx');
 }
